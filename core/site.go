@@ -128,10 +128,7 @@ func NewSiteFromConfig(
 		})
 	}
 
-	tariff := site.tariffs.Grid
-	if site.tariffs.Planner != nil {
-		tariff = site.tariffs.Planner
-	}
+	tariff := site.GetTariff(PlannerTariff)
 
 	// give loadpoints access to vehicles and database
 	for _, lp := range loadpoints {
@@ -589,7 +586,7 @@ func (site *Site) prepare() {
 	site.publish("residualPower", site.ResidualPower)
 
 	site.publish("currency", site.tariffs.Currency.String())
-	site.publish("savingsSince", site.savings.Since().Unix())
+	site.publish("savingsSince", site.savings.Since())
 
 	site.publish("vehicles", vehicleTitles(site.GetVehicles()))
 }
