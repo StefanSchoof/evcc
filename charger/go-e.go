@@ -41,7 +41,7 @@ func init() {
 	registry.Add("go-e", NewGoEFromConfig)
 }
 
-// go:generate go run ../cmd/tools/decorate.go -f decorateGoE -b *GoE -r api.Charger -t "api.MeterEnergy,TotalEnergy,func() (float64, error)" -t "api.ChargePhases,Phases1p3p,func(int) (error)"
+//go:generate go run ../cmd/tools/decorate.go -f decorateGoE -b *GoE -r api.Charger -t "api.PhaseSwitcher,Phases1p3p,func(int) error"
 
 // NewGoEFromConfig creates a go-e charger from generic config
 func NewGoEFromConfig(other map[string]interface{}) (api.Charger, error) {
@@ -49,17 +49,16 @@ func NewGoEFromConfig(other map[string]interface{}) (api.Charger, error) {
 		Token string
 		URI   string
 		Cache time.Duration
-	}{}
+	}{
+		Cache: time.Second,
+	}
 
 	if err := util.DecodeOther(other, &cc); err != nil {
 		return nil, err
 	}
 
-	if cc.URI != "" && cc.Token != "" {
-		return nil, errors.New("should only have one of uri/token")
-	}
-	if cc.URI == "" && cc.Token == "" {
-		return nil, errors.New("must have one of uri/token")
+	if (cc.URI != "") == (cc.Token != "") {
+		return nil, errors.New("must have either uri or token")
 	}
 
 	return NewGoE(cc.URI, cc.Token, cc.Cache)
@@ -77,15 +76,12 @@ func NewGoE(uri, token string, cache time.Duration) (api.Charger, error) {
 		c.api = goe.NewLocal(log, util.DefaultScheme(uri, "http"), cache)
 	}
 
-	if c.api.IsV2() {
-		var phases func(int) error
-		if sponsor.IsAuthorized() {
-			phases = c.phases1p3p
-		} else {
-			log.WARN.Println("automatic 1p3p phase switching requires sponsor token")
-		}
+	if !sponsor.IsAuthorized() {
+		return nil, api.ErrSponsorRequired
+	}
 
-		return decorateGoE(c, c.totalEnergy, phases), nil
+	if c.api.IsV2() {
+		return decorateGoE(c, c.phases1p3p), nil
 	}
 
 	return c, nil
@@ -153,21 +149,12 @@ func (c *GoE) CurrentPower() (float64, error) {
 	return resp.CurrentPower(), err
 }
 
-var _ api.ChargeRater = (*GoE)(nil)
+// removed: https://github.com/evcc-io/evcc/issues/13726
+// var _ api.ChargeRater = (*GoE)(nil)
 
-// ChargedEnergy implements the api.ChargeRater interface
-func (c *GoE) ChargedEnergy() (float64, error) {
-	resp, err := c.api.Status()
-	if err != nil {
-		return 0, err
-	}
+var _ api.PhaseCurrents = (*GoE)(nil)
 
-	return resp.ChargedEnergy(), err
-}
-
-var _ api.MeterCurrent = (*GoE)(nil)
-
-// Currents implements the api.MeterCurrent interface
+// Currents implements the api.PhaseCurrents interface
 func (c *GoE) Currents() (float64, float64, float64, error) {
 	resp, err := c.api.Status()
 	if err != nil {
@@ -177,6 +164,20 @@ func (c *GoE) Currents() (float64, float64, float64, error) {
 	i1, i2, i3 := resp.Currents()
 
 	return i1, i2, i3, err
+}
+
+var _ api.PhaseVoltages = (*GoE)(nil)
+
+// Voltages implements the api.PhaseVoltages interface
+func (c *GoE) Voltages() (float64, float64, float64, error) {
+	resp, err := c.api.Status()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	u1, u2, u3 := resp.Voltages()
+
+	return u1, u2, u3, err
 }
 
 var _ api.Identifier = (*GoE)(nil)
@@ -190,22 +191,19 @@ func (c *GoE) Identify() (string, error) {
 	return resp.Identify(), nil
 }
 
+var _ api.MeterEnergy = (*GoE)(nil)
+
 // totalEnergy implements the api.MeterEnergy interface - v2 only
-func (c *GoE) totalEnergy() (float64, error) {
+func (c *GoE) TotalEnergy() (float64, error) {
 	resp, err := c.api.Status()
 	if err != nil {
 		return 0, err
 	}
 
-	var val float64
-	if res, ok := resp.(*goe.StatusResponse2); ok {
-		val = res.TotalEnergy()
-	}
-
-	return val, err
+	return resp.TotalEnergy(), err
 }
 
-// phases1p3p implements the api.ChargePhases interface - v2 only
+// phases1p3p implements the api.PhaseSwitcher interface - v2 only
 func (c *GoE) phases1p3p(phases int) error {
 	if phases == 3 {
 		phases = 2

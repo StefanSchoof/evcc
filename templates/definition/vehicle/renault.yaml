@@ -2,13 +2,18 @@ template: renault
 products:
   - brand: Renault
 params:
-  - preset: vehiclebase
-  - preset: vehicleidentify
+  - preset: vehicle-base
+  - preset: vehicle-identify
   - name: vin
     example: WREN...
-  - preset: vehiclecloud
+  - name: alternativewakeup
+    type: bool
+    description:
+      de: Alternativer Aufweckmechanismus
+      en: Alternative wakeup mechanism
+    advanced: true
 render: |
   type: renault
   {{ include "vehicle-base" . }}
   {{ include "vehicle-identify" . }}
-  {{ include "vehicle-cloud" . }}
+  alternativewakeup: {{ .alternativewakeup }}

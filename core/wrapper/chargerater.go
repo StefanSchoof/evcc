@@ -40,20 +40,21 @@ func (cr *ChargeRater) StartCharge(continued bool) {
 	defer cr.Unlock()
 
 	// time is needed if MeterEnergy is not supported
-	cr.charging = true
 	cr.start = cr.clck.Now()
 
 	// get end energy amount
 	if m, ok := cr.meter.(api.MeterEnergy); ok {
 		if f, err := m.TotalEnergy(); err == nil {
 			cr.startEnergy = f
-			cr.log.DEBUG.Printf("charge start energy: %.3gkWh", f)
+			cr.log.DEBUG.Printf("charge start energy: %.3fkWh", f)
 		} else {
-			cr.log.ERROR.Printf("charge meter error %v", err)
+			cr.log.ERROR.Printf("charge total import: %v", err)
 		}
 	}
 
-	if !continued {
+	if continued {
+		cr.charging = true
+	} else {
 		cr.chargedEnergy = 0
 	}
 }
@@ -70,9 +71,9 @@ func (cr *ChargeRater) StopCharge() {
 	if m, ok := cr.meter.(api.MeterEnergy); ok {
 		if f, err := m.TotalEnergy(); err == nil {
 			cr.chargedEnergy += f - cr.startEnergy
-			cr.log.DEBUG.Printf("final charge energy: %.3gkWh", cr.chargedEnergy)
+			cr.log.DEBUG.Printf("charge final energy: %.3fkWh", cr.chargedEnergy)
 		} else {
-			cr.log.ERROR.Printf("charge meter error %v", err)
+			cr.log.ERROR.Printf("charge total import: %v", err)
 		}
 	}
 }
@@ -109,12 +110,11 @@ func (cr *ChargeRater) ChargedEnergy() (float64, error) {
 	// get current energy amount
 	if m, ok := cr.meter.(api.MeterEnergy); ok {
 		f, err := m.TotalEnergy()
-
 		if err == nil {
 			return cr.chargedEnergy + f - cr.startEnergy, nil
 		}
 
-		return 0, fmt.Errorf("charge meter error %v", err)
+		return 0, fmt.Errorf("charge total import: %v", err)
 	}
 
 	// return charged energy sofar if meter is not used

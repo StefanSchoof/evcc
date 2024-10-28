@@ -2,10 +2,10 @@ package easee
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/philippseith/signalr"
-	"golang.org/x/exp/slices"
 )
 
 // Logger is a simple logger interface
@@ -34,7 +34,8 @@ func (l *logger) Log(keyVals ...interface{}) error {
 		}
 
 		if i%2 == 0 {
-			if slices.Contains(skipped, v.(string)) {
+			// don't log if key is not a string or if key should be skipped
+			if s, ok := v.(string); !ok || slices.Contains(skipped, s) {
 				skip = true
 				continue
 			}

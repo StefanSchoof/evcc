@@ -2,13 +2,28 @@ template: bmw
 products:
   - brand: BMW
 params:
-  - preset: vehiclebase
-  - preset: vehicleidentify
+  - preset: vehicle-base
+  - preset: vehicle-identify
   - name: vin
     example: WBMW...
-  - preset: vehiclecloud
+  - name: region
+    description:
+      de: Region
+      en: Region
+    # values:
+    #   - NA
+    #   - EU
+    default: EU
+    advanced: true
+  - name: welcomecharge
+    advanced: true
 render: |
   type: bmw
   {{ include "vehicle-base" . }}
   {{ include "vehicle-identify" . }}
-  {{ include "vehicle-cloud" . }}
+  {{- if ne .region "EU" }}
+  region: {{ .region }}
+  {{- end }}
+  {{- if .welcomecharge }}
+  features: ["welcomecharge"]
+  {{- end }}

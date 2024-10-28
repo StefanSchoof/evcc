@@ -1,65 +1,85 @@
 package cmd
 
 import (
-	"fmt"
+	"time"
 
 	"github.com/evcc-io/evcc/api"
-	"github.com/evcc-io/evcc/server"
-	"github.com/evcc-io/evcc/util"
-	"github.com/evcc-io/evcc/util/request"
+	"github.com/evcc-io/evcc/util/config"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // meterCmd represents the meter command
 var meterCmd = &cobra.Command{
 	Use:   "meter [name]",
 	Short: "Query configured meters",
+	Args:  cobra.MaximumNArgs(1),
 	Run:   runMeter,
 }
 
 func init() {
 	rootCmd.AddCommand(meterCmd)
-	meterCmd.PersistentFlags().StringP(flagName, "n", "", fmt.Sprintf(flagNameDescription, "meter"))
-	meterCmd.PersistentFlags().Bool(flagHeaders, false, flagHeadersDescription)
+	meterCmd.Flags().StringP(flagBatteryMode, "b", "", flagBatteryModeDescription)
+	meterCmd.Flags().DurationP(flagBatteryModeWait, "w", 0, flagBatteryModeWaitDescription)
+	meterCmd.Flags().BoolP(flagRepeat, "r", false, flagRepeatDescription)
 }
 
 func runMeter(cmd *cobra.Command, args []string) {
-	util.LogLevel(viper.GetString("log"), viper.GetStringMapString("levels"))
-	log.INFO.Printf("evcc %s", server.FormattedVersion())
-
 	// load config
-	if err := loadConfigFile(cfgFile, &conf); err != nil {
+	if err := loadConfigFile(&conf, !cmd.Flag(flagIgnoreDatabase).Changed); err != nil {
 		log.FATAL.Fatal(err)
 	}
 
 	// setup environment
-	if err := configureEnvironment(conf); err != nil {
+	if err := configureEnvironment(cmd, &conf); err != nil {
 		log.FATAL.Fatal(err)
 	}
 
-	// full http request log
-	if cmd.PersistentFlags().Lookup(flagHeaders).Changed {
-		request.LogHeaders = true
-	}
-
-	// select single meter
-	if err := selectByName(cmd, &conf.Meters); err != nil {
+	if err := configureMeters(conf.Meters, args...); err != nil {
 		log.FATAL.Fatal(err)
 	}
 
-	if err := cp.configureMeters(conf); err != nil {
-		log.FATAL.Fatal(err)
+	mode := api.BatteryUnknown
+	if val := cmd.Flags().Lookup(flagBatteryMode).Value.String(); val != "" {
+		var err error
+		mode, err = api.BatteryModeString(val)
+		if err != nil {
+			log.ERROR.Fatalln(err)
+		}
 	}
 
-	meters := cp.meters
-	if len(args) == 1 {
-		arg := args[0]
-		meters = map[string]api.Meter{arg: cp.Meter(arg)}
+	meters := config.Meters().Devices()
+
+	var flagUsed bool
+	if mode != api.BatteryUnknown {
+		flagUsed = true
+
+		for _, v := range config.Instances(meters) {
+			if b, ok := v.(api.BatteryController); ok {
+				if err := b.SetBatteryMode(mode); err != nil {
+					log.FATAL.Fatalln("set battery mode:", err)
+				}
+			}
+
+			if d, err := cmd.Flags().GetDuration(flagBatteryModeWait); d > 0 && err == nil {
+				log.INFO.Println("waiting for:", d)
+				time.Sleep(d)
+			}
+		}
 	}
 
-	d := dumper{len: len(meters)}
-	for name, v := range meters {
-		d.DumpWithHeader(name, v)
+	if !flagUsed {
+		d := dumper{len: len(meters)}
+	REPEAT:
+		for _, dev := range meters {
+			v := dev.Instance()
+
+			d.DumpWithHeader(dev.Config().Name, v)
+		}
+		if ok, _ := cmd.Flags().GetBool(flagRepeat); ok {
+			goto REPEAT
+		}
 	}
+
+	// wait for shutdown
+	<-shutdownDoneC()
 }

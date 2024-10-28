@@ -14,6 +14,7 @@ import (
 	"github.com/evcc-io/evcc/util/urlvalues"
 	"github.com/evcc-io/evcc/vehicle/vag"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -32,6 +33,7 @@ var Config = &oidc.ProviderConfig{
 func Login(log *util.Logger, q url.Values, user, password string) (url.Values, error) {
 	return LoginWithAuthURL(log, Config.AuthURL, q, user, password)
 }
+
 func LoginWithAuthURL(log *util.Logger, uri string, q url.Values, user, password string) (url.Values, error) {
 	var verify func(url.Values)
 
@@ -85,7 +87,7 @@ func (v *Service) Login(uri, user, password string) (url.Values, error) {
 
 	// add nonce and state
 	query := url.Values{
-		"nonce": []string{util.RandomString(43)},
+		"nonce": []string{lo.RandomString(43, lo.LettersCharset)},
 		"state": []string{uuid.NewString()},
 	}
 
@@ -142,15 +144,11 @@ func (v *Service) Login(uri, user, password string) (url.Values, error) {
 
 		if err == nil {
 			if e := resp.Request.URL.Query().Get("error"); e != "" {
-				err = fmt.Errorf(e)
+				err = errors.New(e)
 			}
 
 			if u := resp.Request.URL.Query().Get("updated"); err == nil && u != "" {
-				if resp, err = v.postTos(resp.Request.URL.String()); err == nil {
-					resp.Body.Close()
-				} else {
-					err = fmt.Errorf("updated ToS: %w", err)
-				}
+				err = errors.New("terms of service updated- please open app or website and confirm")
 			}
 		}
 	}
@@ -168,24 +166,4 @@ func (v *Service) Login(uri, user, password string) (url.Values, error) {
 	}
 
 	return nil, err
-}
-
-func (v *Service) postTos(uri string) (*http.Response, error) {
-	var vars FormVars
-	resp, err := v.Get(uri)
-	if err == nil {
-		vars, err = FormValues(resp.Body, "form#emailPasswordForm")
-	}
-
-	if err == nil {
-		data := make(url.Values)
-		for k, v := range vars.Inputs {
-			data.Set(k, v)
-		}
-
-		uri := BaseURL + vars.Action
-		resp, err = v.PostForm(uri, data)
-	}
-
-	return resp, err
 }

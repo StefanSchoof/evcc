@@ -2,13 +2,27 @@ package util
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
+
+	"github.com/evcc-io/evcc/util/encode"
 )
 
 // Cache is a data store
 type Cache struct {
-	sync.Mutex
+	mu  sync.RWMutex
 	val map[string]Param
+}
+
+// flush is the value type used as parameter for flushing the cache.
+// Flushing is implemented by closing the channel. At this time, it is guaranteed
+// that the cache has catched up processing all pending messages.
+type flush chan struct{}
+
+// Flusher returns a new flush channel
+func Flusher() flush {
+	return make(flush)
 }
 
 // NewCache creates cache
@@ -23,39 +37,46 @@ func (c *Cache) Run(in <-chan Param) {
 	log := NewLogger("cache")
 
 	for p := range in {
-		key := p.Key
-		if p.LoadPoint != nil {
-			key = fmt.Sprintf("lp-%d/%s", *p.LoadPoint+1, key)
+		if flushC, ok := p.Val.(flush); ok {
+			close(flushC)
+			continue
 		}
+
+		key := p.Key
+		if p.Loadpoint != nil {
+			key = fmt.Sprintf("lp-%d/%s", *p.Loadpoint+1, key)
+		}
+
 		log.TRACE.Printf("%s: %v", key, p.Val)
 		c.Add(p.UniqueID(), p)
 	}
 }
 
-// State provides a structured copy of the cached values
-// Loadpoints are aggregated as loadpoints array
-func (c *Cache) State() map[string]interface{} {
-	c.Lock()
-	defer c.Unlock()
+// State provides a structured copy of the cached values.
+// Loadpoints are aggregated as loadpoints array.
+// Result values are formatted using encoder.
+func (c *Cache) State(enc encode.Encoder) map[string]any {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
-	res := map[string]interface{}{}
-	lps := make(map[int]map[string]interface{})
+	res := make(map[string]any)
+	lps := make(map[int]map[string]any)
 
 	for _, param := range c.val {
-		if param.LoadPoint == nil {
-			res[param.Key] = param.Val
+		if param.Loadpoint == nil {
+			res[param.Key] = enc.Encode(param.Val)
 		} else {
-			lp, ok := lps[*param.LoadPoint]
+			lp, ok := lps[*param.Loadpoint]
 			if !ok {
-				lp = make(map[string]interface{})
-				lps[*param.LoadPoint] = lp
+				lp = make(map[string]any)
+				lps[*param.Loadpoint] = lp
 			}
-			lp[param.Key] = param.Val
+			lp[param.Key] = enc.Encode(param.Val)
 		}
 	}
 
 	// convert map to array
-	loadpoints := make([]map[string]interface{}, len(lps))
+	loadpoints := make([]map[string]any, len(lps))
 	for id, lp := range lps {
 		loadpoints[id] = lp
 	}
@@ -66,29 +87,24 @@ func (c *Cache) State() map[string]interface{} {
 
 // All provides a copy of the cached values
 func (c *Cache) All() []Param {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
-	copy := make([]Param, 0, len(c.val))
-	for _, val := range c.val {
-		copy = append(copy, val)
-	}
-
-	return copy
+	return slices.Collect(maps.Values(c.val))
 }
 
 // Add entry to cache
 func (c *Cache) Add(key string, param Param) {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	c.val[key] = param
 }
 
 // Get entry from cache
 func (c *Cache) Get(key string) Param {
-	c.Lock()
-	defer c.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	if val, ok := c.val[key]; ok {
 		return val

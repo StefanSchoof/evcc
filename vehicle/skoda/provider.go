@@ -7,21 +7,29 @@ import (
 	"github.com/evcc-io/evcc/provider"
 )
 
-// Provider implements the evcc vehicle api
+// Provider implements the vehicle api
 type Provider struct {
-	chargerG func() (ChargerResponse, error)
-	action   func(action, value string) error
+	statusG   func() (StatusResponse, error)
+	chargerG  func() (ChargerResponse, error)
+	settingsG func() (SettingsResponse, error)
+	action    func(action, value string) error
 }
 
-// NewProvider provides the evcc vehicle api provider
+// NewProvider creates a vehicle api provider
 func NewProvider(api *API, vin string, cache time.Duration) *Provider {
 	impl := &Provider{
+		statusG: provider.Cached(func() (StatusResponse, error) {
+			return api.Status(vin)
+		}, cache),
 		chargerG: provider.Cached(func() (ChargerResponse, error) {
 			return api.Charger(vin)
 		}, cache),
 		// climateG: provider.Cached(func() (interface{}, error) {
 		// 	return api.Climater(vin)
 		// }, cache),
+		settingsG: provider.Cached(func() (SettingsResponse, error) {
+			return api.Settings(vin)
+		}, cache),
 		action: func(action, value string) error {
 			return api.Action(vin, action, value)
 		},
@@ -31,8 +39,8 @@ func NewProvider(api *API, vin string, cache time.Duration) *Provider {
 
 var _ api.Battery = (*Provider)(nil)
 
-// SoC implements the api.Vehicle interface
-func (v *Provider) SoC() (float64, error) {
+// Soc implements the api.Vehicle interface
+func (v *Provider) Soc() (float64, error) {
 	res, err := v.chargerG()
 	if err == nil {
 		return float64(res.Battery.StateOfChargeInPercent), nil
@@ -85,11 +93,15 @@ var _ api.VehicleRange = (*Provider)(nil)
 // Range implements the api.VehicleRange interface
 func (v *Provider) Range() (rng int64, err error) {
 	res, err := v.chargerG()
-	if err == nil {
-		rng = res.Battery.CruisingRangeElectricInMeters / 1e3
-	}
+	return res.Battery.CruisingRangeElectricInMeters / 1e3, err
+}
 
-	return rng, err
+var _ api.VehicleOdometer = (*Provider)(nil)
+
+// Odometer implements the api.VehicleOdometer interface
+func (v *Provider) Odometer() (odo float64, err error) {
+	res, err := v.statusG()
+	return res.Remote.MileageInKm, err
 }
 
 // var _ api.VehicleClimater = (*Provider)(nil)
@@ -113,14 +125,22 @@ func (v *Provider) Range() (rng int64, err error) {
 // 	return active, outsideTemp, targetTemp, err
 // }
 
-var _ api.VehicleChargeController = (*Provider)(nil)
+var _ api.SocLimiter = (*Provider)(nil)
 
-// StartCharge implements the api.VehicleChargeController interface
-func (v *Provider) StartCharge() error {
-	return v.action(ActionCharge, ActionChargeStart)
+// GetLimitSoc implements the api.SocLimiter interface
+func (v *Provider) GetLimitSoc() (int64, error) {
+	res, err := v.settingsG()
+	if err == nil {
+		return int64(res.TargetStateOfChargeInPercent), nil
+	}
+
+	return 0, err
 }
 
-// StopCharge implements the api.VehicleChargeController interface
-func (v *Provider) StopCharge() error {
-	return v.action(ActionCharge, ActionChargeStop)
+var _ api.ChargeController = (*Provider)(nil)
+
+// ChargeEnable implements the api.ChargeController interface
+func (v *Provider) ChargeEnable(enable bool) error {
+	action := map[bool]string{true: ActionChargeStart, false: ActionChargeStop}
+	return v.action(ActionCharge, action[enable])
 }

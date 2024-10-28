@@ -1,17 +1,18 @@
 package push
 
 import (
+	"fmt"
 	"strings"
 	"text/template"
-	"time"
 
 	"github.com/Masterminds/sprig/v3"
+	"github.com/evcc-io/evcc/core/vehicle"
 	"github.com/evcc-io/evcc/util"
 )
 
 // Event is a notification event
 type Event struct {
-	LoadPoint *int // optional loadpoint id
+	Loadpoint *int // optional loadpoint id
 	Event     string
 }
 
@@ -20,77 +21,82 @@ type EventTemplateConfig struct {
 	Title, Msg string
 }
 
-// EventTemplate is the push message template for an event
-type EventTemplate struct {
-	Title, Msg *template.Template
+type Vehicles interface {
+	// ByName returns a single vehicle adapter by name
+	ByName(string) (vehicle.API, error)
 }
 
 // Hub subscribes to event notifications and sends them to client devices
 type Hub struct {
-	definitions map[string]EventTemplate
-	sender      []Sender
+	definitions map[string]EventTemplateConfig
+	sender      []Messenger
 	cache       *util.Cache
+	vehicles    Vehicles
 }
 
 // NewHub creates push hub with definitions and receiver
-func NewHub(cc map[string]EventTemplateConfig, cache *util.Cache) (*Hub, error) {
-	definitions := make(map[string]EventTemplate)
-
+func NewHub(cc map[string]EventTemplateConfig, vv Vehicles, cache *util.Cache) (*Hub, error) {
 	// instantiate all event templates
 	for k, v := range cc {
-		var def EventTemplate
-		var err error
-
-		def.Title, err = template.New("out").Funcs(template.FuncMap(sprig.FuncMap())).Parse(v.Title)
-		if err == nil {
-			def.Msg, err = template.New("out").Funcs(template.FuncMap(sprig.FuncMap())).Parse(v.Msg)
+		if _, err := template.New("out").Funcs(sprig.FuncMap()).Parse(v.Title); err != nil {
+			return nil, fmt.Errorf("invalid event title: %s (%w)", k, err)
 		}
-
-		if err != nil {
-			return nil, err
+		if _, err := template.New("out").Funcs(sprig.FuncMap()).Parse(v.Msg); err != nil {
+			return nil, fmt.Errorf("invalid event message: %s (%w)", k, err)
 		}
-
-		definitions[k] = def
 	}
 
 	h := &Hub{
-		definitions: definitions,
+		definitions: cc,
 		cache:       cache,
+		vehicles:    vv,
 	}
 
 	return h, nil
 }
 
 // Add adds a sender to the list of senders
-func (h *Hub) Add(sender Sender) {
+func (h *Hub) Add(sender Messenger) {
 	h.sender = append(h.sender, sender)
 }
 
 // apply applies the event template to the content to produce the actual message
-func (h *Hub) apply(ev Event, tmpl *template.Template) (string, error) {
+func (h *Hub) apply(ev Event, tmpl string) (string, error) {
 	attr := make(map[string]interface{})
 
-	// let cache catch up, refs reverted https://github.com/evcc-io/evcc/pull/445
-	time.Sleep(100 * time.Millisecond)
+	// loadpoint id
+	if ev.Loadpoint != nil {
+		attr["loadpoint"] = *ev.Loadpoint + 1
+	}
 
 	// get all values from cache
 	for _, p := range h.cache.All() {
-		if p.LoadPoint == nil || ev.LoadPoint == p.LoadPoint {
+		if p.Loadpoint == nil || ev.Loadpoint == p.Loadpoint {
 			attr[p.Key] = p.Val
 		}
 	}
 
-	// apply data attributes to template using sprig functions
-	applied := new(strings.Builder)
-	if err := tmpl.Execute(applied, attr); err != nil {
-		return "", err
+	// add missing attributes
+	if name, ok := attr["vehicleName"].(string); ok {
+		if v, err := h.vehicles.ByName(name); err == nil {
+			attr["vehicleLimitSoc"] = v.GetLimitSoc()
+			attr["vehicleMinSoc"] = v.GetMinSoc()
+			attr["vehiclePlanTime"], attr["vehiclePlanSoc"] = v.GetPlanSoc()
+
+			instance := v.Instance()
+			attr["vehicleTitle"] = instance.Title()
+			attr["vehicleIcon"] = instance.Icon()
+			attr["vehicleCapacity"] = instance.Capacity()
+		}
 	}
 
-	return util.ReplaceFormatted(applied.String(), attr)
+	return util.ReplaceFormatted(tmpl, attr)
 }
 
 // Run is the Hub's main publishing loop
-func (h *Hub) Run(events <-chan Event) {
+func (h *Hub) Run(events <-chan Event, valueChan chan<- util.Param) {
+	log := util.NewLogger("push")
+
 	for ev := range events {
 		if len(h.sender) == 0 {
 			continue
@@ -100,6 +106,11 @@ func (h *Hub) Run(events <-chan Event) {
 		if !ok {
 			continue
 		}
+
+		// let cache catch up, refs https://github.com/evcc-io/evcc/pull/445
+		flushC := util.Flusher()
+		valueChan <- util.Param{Val: flushC}
+		<-flushC
 
 		title, err := h.apply(ev, definition.Title)
 		if err != nil {
@@ -113,12 +124,12 @@ func (h *Hub) Run(events <-chan Event) {
 			continue
 		}
 
+		if strings.TrimSpace(msg) == "" {
+			continue
+		}
+
 		for _, sender := range h.sender {
-			if strings.TrimSpace(msg) != "" {
-				go sender.Send(title, msg)
-			} else {
-				log.DEBUG.Printf("did not send empty message template for %s: %v", ev.Event, err)
-			}
+			go sender.Send(title, msg)
 		}
 	}
 }

@@ -3,14 +3,16 @@ products:
   - brand: RCT
     description:
       generic: Power
-guidedsetup:
-  enable: true
 params:
   - name: usage
     choice: ["grid", "pv", "battery"]
+    allinone: true
   - name: host
+  - name: capacity
+    advanced: true
 render: |
   type: rct
   uri: {{ .host }}
   usage: {{ .usage }}
   cache: 2s
+  capacity: {{ .capacity }} # kWh

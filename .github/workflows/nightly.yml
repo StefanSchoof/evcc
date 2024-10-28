@@ -1,5 +1,8 @@
 name: Nightly Build
 
+env:
+  GO_VERSION: ^1.23
+
 on:
   schedule: # runs on the default branch: master
     - cron: "0 2 * * *" # run at 2 AM UTC
@@ -12,7 +15,7 @@ jobs:
     outputs:
       should_run: ${{ steps.should_run.outputs.should_run }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: print latest_commit
         run: echo ${{ github.sha }}
 
@@ -20,7 +23,7 @@ jobs:
         continue-on-error: true
         name: check latest commit is less than a day
         if: ${{ github.event_name == 'schedule' }}
-        run: test -z $(git rev-list  --after="24 hours"  ${{ github.sha }}) && echo "::set-output name=should_run::false"
+        run: test -z $(git rev-list  --after="24 hours" ${{ github.sha }}) && echo "should_run=false" >> $GITHUB_OUTPUT
 
   call-build-workflow:
     name: Call Build
@@ -38,24 +41,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
+          ref: refs/heads/master # force master
           fetch-depth: 0
 
-      - name: Install
-        env:
-          SEIHON_VERSION: v0.9.0
-        run: curl -sfL https://raw.githubusercontent.com/ldez/seihon/master/godownloader.sh | sudo bash -s -- -b $GOPATH/bin ${SEIHON_VERSION}
+      - name: Get dist from cache
+        uses: actions/cache/restore@v4
+        id: cache-dist
+        with:
+          path: dist
+          key: ${{ runner.os }}-${{ github.sha }}-dist
 
       - name: Login
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_PASS }}
 
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Publish
-        run: make publish-nightly
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v6
+          push: true
+          build-args: |
+            TESLA_CLIENT_ID=${{ secrets.TESLA_CLIENT_ID }}
+          tags: |
+            evcc/evcc:nightly
 
   apt:
     name: Publish APT nightly
@@ -64,53 +80,42 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Cache Go modules
-        uses: actions/cache@v2
+      - uses: actions/setup-go@v5
         with:
-          path: |
-            ~/go/pkg
-            ~/.cache/go-build
-          key: ${{ runner.os }}-${{ matrix.go-version }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.go-version }}-go-
-
-      - name: Set up Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: ^1.18
+          go-version: ${{ env.GO_VERSION }}
         id: go
 
-      - name: Set up Node
-        uses: actions/setup-node@v2
+      - name: Patch ASN1
+        run: make patch-asn1-sudo
+
+      - name: Get dist from cache
+        uses: actions/cache/restore@v4
+        id: cache-dist
         with:
-          node-version: "16"
+          path: dist
+          key: ${{ runner.os }}-${{ github.sha }}-dist
+
+      - name: Create nightly build
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: --snapshot -f .goreleaser-nightly.yml --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TESLA_CLIENT_ID: ${{ secrets.TESLA_CLIENT_ID }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.12
 
       - name: Install Cloudsmith CLI
         run: pip install --upgrade cloudsmith-cli
 
-      - name: Clean git
-        run: |
-          git checkout go.*
-          rm -rf flags buildflags
-
-      - name: Create nightly build
-        uses: goreleaser/goreleaser-action@v2
-        with:
-          version: latest
-          args: --snapshot -f .goreleaser-nightly.yml --rm-dist
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Publish .deb to Cloudsmith
         env:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
-        run: |
-          for filename in release/*.deb; do
-            echo "Pushing $filename to 'unstable'"
-            cloudsmith push deb evcc/unstable/any-distro/any-version $filename
-          done
+        run: make apt-nightly

@@ -1,12 +1,11 @@
 template: porsche
+deprecated: true
 products:
   - brand: Porsche
 params:
-  - preset: vehiclebase
-  - preset: vehicleidentify
-  - preset: vehiclecloud
+  - preset: vehicle-base
+  - preset: vehicle-identify
 render: |
   type: porsche
   {{ include "vehicle-base" . }}
   {{ include "vehicle-identify" . }}
-  {{ include "vehicle-cloud" . }}

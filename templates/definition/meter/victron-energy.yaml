@@ -3,18 +3,37 @@ products:
   - brand: Victron
     description:
       generic: Energy
-guidedsetup:
-  enable: true
+requirements:
+  description:
+    de: Für Grid-Nutzung ist eine VRM-Instanz notwendig wenn Lastmanagement genutzt werden soll.
+    en: For grid usage, a grid meter VRM instance is require to enabled load management.
+capabilities: ["battery-control"]
 params:
   - name: usage
     choice: ["grid", "pv", "battery"]
+    allinone: true
   - name: host
   - name: port
     default: 502
+  - name: capacity
+    advanced: true
+  - name: meterid # grid meter VRM instance
+    type: number
+    usages: ["grid"]
+    help:
+      de: "Grid-Energiezähler VRM instance- kann im VRM Portal oder im RemoteUI ausgelesen werden."
+      en: "Grid meter VRM instance- can be read out in VRM portal or via remoteUI."
+  # battery control
+  - name: minsoc
+    type: number
+    advanced: true
+  - name: maxsoc
+    type: number
+    advanced: true
 render: |
   type: custom
-  power:
   {{- if eq .usage "grid" }}
+  power:
     source: calc
     add:
     - source: modbus
@@ -38,8 +57,36 @@ render: |
         address: 822 # L3 grid power
         type: input
         decode: int16
+  {{- if .meterid }}
+  currents:
+    - source: modbus
+      uri: {{ .host }}:{{ .port }}
+      id: {{ .meterid }}
+      register:
+        address: 2617 # L1 grid current
+        type: input
+        decode: int16
+      scale: 0.1
+    - source: modbus
+      uri: {{ .host }}:{{ .port }}
+      id: {{ .meterid }}
+      register:
+        address: 2619 # L2 grid current
+        type: input
+        decode: int16
+      scale: 0.1
+    - source: modbus
+      uri: {{ .host }}:{{ .port }}
+      id: {{ .meterid }}
+      register:
+        address: 2621 # L3 grid current
+        type: input
+        decode: int16
+      scale: 0.1
+  {{- end }}
   {{- end }}
   {{- if eq .usage "pv" }}
+  power:
     source: calc
     add:
     - source: modbus
@@ -93,6 +140,7 @@ render: |
         decode: uint16
   {{- end }}
   {{- if eq .usage "battery" }}
+  power:
     source: modbus
     uri: {{ .host }}:{{ .port }}
     id: 100 # com.victronenergy.system
@@ -106,7 +154,22 @@ render: |
     uri: {{ .host }}:{{ .port }}
     id: 100 # com.victronenergy.system
     register:
-      address: 843 # SoC
+      address: 843 # Soc
       type: input
       decode: uint16
+  limitsoc:
+    source: convert
+    convert: float2int
+    set:
+      source: modbus
+      uri: {{ .host }}:{{ .port }}
+      id: 100 # com.victronenergy.system
+      register:
+        address: 2901 # limit soc
+        type: writesingle
+        decode: uint16
+      scale: 10
+  capacity: {{ .capacity }} # kWh
+  minsoc: {{ .minsoc }} # %
+  maxsoc: {{ .maxsoc }} # %
   {{- end }}

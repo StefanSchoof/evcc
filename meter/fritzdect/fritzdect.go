@@ -32,8 +32,11 @@ type Connection struct {
 	*request.Helper
 	*Settings
 	SID     string
-	Updated time.Time
+	updated time.Time
 }
+
+// https://avm.de/fileadmin/user_upload/Global/Service/Schnittstellen/AVM_Technical_Note_-_Session_ID_english_2021-05-03.pdf
+const sessionTimeout = 15 * time.Minute
 
 // Devicestats structures getbasicdevicesstats command response (AHA-HTTP-Interface)
 type Devicestats struct {
@@ -79,12 +82,12 @@ func NewConnection(uri, ain, user, password string) (*Connection, error) {
 // ExecCmd execautes an FritzDECT AHA-HTTP-Interface command
 func (c *Connection) ExecCmd(function string) (string, error) {
 	// refresh Fritzbox session id
-	if time.Since(c.Updated) >= 10*time.Minute {
+	if time.Since(c.updated) >= sessionTimeout {
 		if err := c.getSessionID(); err != nil {
 			return "", err
 		}
 		// update session timestamp
-		c.Updated = time.Now()
+		c.updated = time.Now()
 	}
 
 	parameters := url.Values{
@@ -143,11 +146,11 @@ func (c *Connection) getSessionID() error {
 		return err
 	}
 
-	v := struct {
+	var v struct {
 		SID       string
 		Challenge string
 		BlockTime string
-	}{}
+	}
 
 	if err = xml.Unmarshal(body, &v); err == nil && v.SID == "0000000000000000" {
 		var challresp string
@@ -171,7 +174,7 @@ func (c *Connection) getSessionID() error {
 }
 
 // createChallengeResponse creates the Fritzbox challenge response string
-func createChallengeResponse(challenge string, pass string) (string, error) {
+func createChallengeResponse(challenge, pass string) (string, error) {
 	encoder := unicode.UTF16(unicode.LittleEndian, unicode.IgnoreBOM).NewEncoder()
 	utf16le, err := encoder.String(challenge + "-" + pass)
 	if err != nil {
@@ -179,9 +182,7 @@ func createChallengeResponse(challenge string, pass string) (string, error) {
 	}
 
 	hash := md5.New()
-	if _, err = hash.Write([]byte(utf16le)); err != nil {
-		return "", err
-	}
+	hash.Write([]byte(utf16le))
 
 	md5hash := hex.EncodeToString(hash.Sum(nil))
 	return challenge + "-" + md5hash, nil

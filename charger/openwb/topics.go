@@ -29,11 +29,11 @@ const (
 	ChargeTotalEnergyTopic = "kWhCounter"
 
 	// vehicle
-	VehicleSoCTopic = "Soc"
+	VehicleSocTopic = "Soc"
 
 	// general measurements
 	PowerTopic   = "W"
-	SoCTopic     = "%Soc"
+	SocTopic     = "%Soc"
 	CurrentTopic = "APhase" // 1..3
 
 	// configuration
@@ -57,4 +57,5 @@ const (
 	SlaveChargeCurrentTopic = "Current"
 	SlavePhasesTopic        = "U1p3p"
 	SlaveClearRfidTopic     = "ClearRfid"
+	SlaveCPInterruptTopic   = "Cpulp1"
 )

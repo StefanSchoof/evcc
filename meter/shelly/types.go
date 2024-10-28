@@ -25,13 +25,36 @@ type Gen2SwitchResponse struct {
 }
 
 type Gen2Switch struct {
-	Apower float64
+	Apower  float64
+	Aenergy struct {
+		Total float64
+	}
 }
 
 type Gen2StatusResponse struct {
 	Switch0 Gen2Switch `json:"switch:0"`
 	Switch1 Gen2Switch `json:"switch:1"`
 	Switch2 Gen2Switch `json:"switch:2"`
+	Pm0     Gen2Switch `json:"pm1:0"`
+	Pm1     Gen2Switch `json:"pm2:1"`
+	Pm2     Gen2Switch `json:"pm3:2"`
+}
+
+type Gen2EmStatusResponse struct {
+	TotalPower float64 `json:"total_act_power"`
+	CurrentA   float64 `json:"a_current"`
+	CurrentB   float64 `json:"b_current"`
+	CurrentC   float64 `json:"c_current"`
+	VoltageA   float64 `json:"a_voltage"`
+	VoltageB   float64 `json:"b_voltage"`
+	VoltageC   float64 `json:"c_voltage"`
+	PowerA     float64 `json:"a_act_power"`
+	PowerB     float64 `json:"b_act_power"`
+	PowerC     float64 `json:"c_act_power"`
+}
+
+type Gen2EmDataStatusResponse struct {
+	TotalEnergy float64 `json:"total_act"`
 }
 
 type Gen1SwitchResponse struct {
@@ -41,5 +64,11 @@ type Gen1SwitchResponse struct {
 type Gen1StatusResponse struct {
 	Meters []struct {
 		Power float64
+		Total float64
+	}
+	// Shelly EM meter JSON response
+	EMeters []struct {
+		Power float64
+		Total float64
 	}
 }

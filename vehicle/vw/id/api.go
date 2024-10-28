@@ -1,7 +1,6 @@
 package id
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,7 +14,7 @@ import (
 // https://customer-profile.apps.emea.vwapps.io/v1/customers/<userId>/realCarData
 
 // BaseURL is the API base url
-const BaseURL = "https://mobileapi.apps.emea.vwapps.io"
+const BaseURL = "https://emea.bff.cariad.digital/vehicle/v1"
 
 // API is an api.Vehicle implementation for VW ID cars
 type API struct {
@@ -49,40 +48,28 @@ func NewAPI(log *util.Logger, ts oauth2.TokenSource) *API {
 }
 
 // Vehicles implements the /vehicles response
-func (v *API) Vehicles() (res []string, err error) {
-	uri := fmt.Sprintf("%s/vehicles", BaseURL)
+func (v *API) Vehicles() ([]Vehicle, error) {
+	var res Vehicles
 
+	uri := fmt.Sprintf("%s/vehicles", BaseURL)
 	req, err := request.New(http.MethodGet, uri, nil, request.AcceptJSON)
 
-	var vehicles struct {
-		Data []struct {
-			VIN      string
-			Model    string
-			Nickname string
-		}
-	}
-
 	if err == nil {
-		err = v.DoJSON(req, &vehicles)
-
-		for _, v := range vehicles.Data {
-			res = append(res, v.VIN)
-		}
+		err = v.DoJSON(req, &res)
 	}
 
-	return res, err
+	return res.Data, err
 }
 
-// Status implements the /status response
+// Status implements the /status response.
+// It is callers responsibility to check for embedded (partial) errors.
 func (v *API) Status(vin string) (res Status, err error) {
-	uri := fmt.Sprintf("%s/vehicles/%s/status", BaseURL, vin)
+	uri := fmt.Sprintf("%s/vehicles/%s/selectivestatus?jobs=charging,fuelStatus,climatisation,measurements", BaseURL, vin)
 
 	req, err := request.New(http.MethodGet, uri, nil, request.AcceptJSON)
 
 	if err == nil {
-		if err = v.DoJSON(req, &res); err == nil && len(res.Error) > 0 {
-			err = errors.New("unknown error")
-		}
+		err = v.DoJSON(req, &res)
 	}
 
 	return res, err

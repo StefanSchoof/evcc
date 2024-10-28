@@ -12,8 +12,8 @@ import (
 
 // TPLink charger implementation
 type TPLink struct {
-	conn         *tplink.Connection
-	standbypower float64
+	conn *tplink.Connection
+	*switchSocket
 }
 
 func init() {
@@ -22,10 +22,11 @@ func init() {
 
 // NewTPLinkFromConfig creates a TP-Link charger from generic config
 func NewTPLinkFromConfig(other map[string]interface{}) (api.Charger, error) {
-	cc := struct {
+	var cc struct {
+		embed        `mapstructure:",squash"`
 		URI          string
 		StandbyPower float64
-	}{}
+	}
 
 	if err := util.DecodeOther(other, &cc); err != nil {
 		return nil, err
@@ -35,20 +36,22 @@ func NewTPLinkFromConfig(other map[string]interface{}) (api.Charger, error) {
 		return nil, errors.New("missing uri")
 	}
 
-	return NewTPLink(cc.URI, cc.StandbyPower)
+	return NewTPLink(cc.embed, cc.URI, cc.StandbyPower)
 }
 
 // NewTPLink creates TP-Link charger
-func NewTPLink(uri string, standbypower float64) (*TPLink, error) {
+func NewTPLink(embed embed, uri string, standbypower float64) (*TPLink, error) {
 	conn, err := tplink.NewConnection(uri)
 	if err != nil {
 		return nil, err
 	}
 
 	c := &TPLink{
-		conn:         conn,
-		standbypower: standbypower,
+		conn: conn,
 	}
+
+	c.switchSocket = NewSwitchSocket(&embed, c.Enabled, c.conn.CurrentPower, standbypower)
+
 	return c, nil
 }
 
@@ -87,58 +90,6 @@ func (c *TPLink) Enable(enable bool) error {
 	}
 
 	return nil
-}
-
-// MaxCurrent implements the api.Charger interface
-func (c *TPLink) MaxCurrent(current int64) error {
-	return nil
-}
-
-// Status implements the api.Charger interface
-func (c *TPLink) Status() (api.ChargeStatus, error) {
-	res := api.StatusB
-
-	// static mode
-	if c.standbypower < 0 {
-		on, err := c.Enabled()
-		if on {
-			res = api.StatusC
-		}
-
-		return res, err
-	}
-
-	// standby power mode
-	power, err := c.CurrentPower()
-	if power > c.standbypower {
-		res = api.StatusC
-	}
-
-	return res, err
-}
-
-var _ api.Meter = (*TPLink)(nil)
-
-// CurrentPower implements the api.Meter interface
-func (c *TPLink) CurrentPower() (float64, error) {
-	var power float64
-
-	// set fix static power in static mode
-	if c.standbypower < 0 {
-		on, err := c.Enabled()
-		if on {
-			power = -c.standbypower
-		}
-		return power, err
-	}
-
-	// ignore power in standby mode
-	power, err := c.conn.CurrentPower()
-	if power <= c.standbypower {
-		power = 0
-	}
-
-	return power, err
 }
 
 var _ api.MeterEnergy = (*TPLink)(nil)

@@ -5,28 +5,23 @@ products:
 group: generic
 params:
   - name: title
+  - name: icon
+    default: car
+    advanced: true
   - name: akey
     required: true
   - name: token
     required: true
   - name: capacity
-    valuetype: float
+    type: float
   - name: phases
     advanced: true
-  - preset: vehicleidentify
-  - preset: vehiclecloud
+  - preset: vehicle-identify
 render: |
   type: custom
-  {{- if ne .title "" }}
-  title: {{ .title }}
-  {{- end }}
-  capacity: {{ .capacity }}
-  {{- if ne .phases "" }}
-  phases: {{ .phases }}
-  {{- end }}
+  {{ include "vehicle-common" . }}
   soc:
-    type: http
-    uri: https://app.evnotify.de/soc?akey={{ .akey }}&token={{ .token }} # evNotify Server + AKEY
-    method: GET
+    source: http
+    uri: https://app.evnotify.de/soc?akey={{ urlEncode .akey }}&token={{ urlEncode .token }} # evNotify Server + AKEY
     jq: .soc_display
-  {{ include "vehicle-cloud" . }}
+  {{ include "vehicle-identify" . }}

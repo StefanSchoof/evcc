@@ -3,46 +3,48 @@ package vehicle
 import (
 	"fmt"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
-// ensureVehicleWithFeature extracts VIN from list of VINs returned from `list`` function
+// ensureVehicle extracts VIN from list of VINs returned from `list` function
 func ensureVehicle(vin string, list func() ([]string, error)) (string, error) {
-	vin, _, err := ensureVehicleWithFeature(vin, list, func(v string) (string, string) {
-		return v, ""
+	return ensureVehicleEx(vin, list, func(v string) (string, error) {
+		return v, nil
 	})
-
-	return vin, err
 }
 
-// ensureVehicleWithFeature extracts VIN and feature from list of vehicles of type V returned from `list`` function
-func ensureVehicleWithFeature[Vehicle, Feature any](
+// ensureVehicleEx extracts vehicle with matching VIN from list of vehicles
+func ensureVehicleEx[T any](
 	vin string,
-	list func() ([]Vehicle, error),
-	extract func(Vehicle) (string, Feature),
-) (string, Feature, error) {
+	list func() ([]T, error),
+	extract func(T) (string, error),
+) (T, error) {
+	var zero T
+
 	vehicles, err := list()
 	if err != nil {
-		return "", *new(Feature), fmt.Errorf("cannot get vehicles: %w", err)
+		return zero, fmt.Errorf("cannot get vehicles: %w", err)
 	}
 
-	if vin = strings.ToUpper(vin); vin != "" {
+	if vin := strings.ToUpper(vin); vin != "" {
+		// vin defined
 		for _, vehicle := range vehicles {
-			if v, res := extract(vehicle); v == vin {
-				return v, res, nil
+			vv, err := extract(vehicle)
+			if err != nil {
+				return zero, err
+			}
+			if strings.ToUpper(vv) == vin {
+				return vehicle, nil
 			}
 		}
-
-		// vin defined but doesn't exist
-		err = fmt.Errorf("cannot find vehicle: %s", vin)
-	} else {
-		// vin empty
-		if len(vehicles) == 1 {
-			vin, res := extract(vehicles[0])
-			return vin, res, nil
-		}
-
-		err = fmt.Errorf("cannot find vehicle: %v", vehicles)
+	} else if len(vehicles) == 1 {
+		// vin empty and exactly one vehicle
+		return vehicles[0], nil
 	}
 
-	return "", *new(Feature), err
+	return zero, fmt.Errorf("cannot find vehicle, got: %v", lo.Map(vehicles, func(v T, _ int) string {
+		vin, _ := extract(v)
+		return vin
+	}))
 }

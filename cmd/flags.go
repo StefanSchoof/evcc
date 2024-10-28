@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 )
 
@@ -10,14 +8,31 @@ const (
 	flagHeaders            = "log-headers"
 	flagHeadersDescription = "Log headers"
 
-	flagName            = "name"
-	flagNameDescription = "Select %s by name"
+	flagIgnoreDatabase            = "ignore-db"
+	flagIgnoreDatabaseDescription = "Run command ignoring service database"
+
+	flagBatteryMode                = "battery-mode"
+	flagBatteryModeDescription     = "Set battery mode (normal, hold, charge)"
+	flagBatteryModeWait            = "battery-mode-wait"
+	flagBatteryModeWaitDescription = "Wait given duration during which potential watchdogs are active"
 
 	flagCurrent            = "current"
 	flagCurrentDescription = "Set maximum current"
 
+	flagPhases            = "phases"
+	flagPhasesDescription = "Set usable phases (1 or 3)"
+
+	flagCloud            = "cloud"
+	flagCloudDescription = "Use cloud service (requires sponsor token)"
+
+	flagReset            = "reset"
+	flagResetDescription = "Reset migrated settings"
+
 	flagEnable  = "enable"
 	flagDisable = "disable"
+
+	flagDiagnose            = "diagnose"
+	flagDiagnoseDescription = "Diagnose"
 
 	flagWakeup            = "wakeup"
 	flagWakeupDescription = "Wake up"
@@ -28,24 +43,30 @@ const (
 	flagStop            = "stop"
 	flagStopDescription = "Stop charging"
 
+	flagRepeat            = "repeat"
+	flagRepeatDescription = "Repeat until interrupted"
+
 	flagDigits = "digits"
 	flagDelay  = "delay"
+	flagForce  = "force"
 )
 
-func selectByName(cmd *cobra.Command, conf *[]qualifiedConfig) error {
-	flag := cmd.PersistentFlags().Lookup(flagName)
-	if !flag.Changed {
-		return nil
+func bind(cmd *cobra.Command, key string, flagName ...string) {
+	name := key
+	if len(flagName) == 1 {
+		name = flagName[0]
 	}
-
-	name := flag.Value.String()
-
-	for _, cfg := range *conf {
-		if cfg.Name == name {
-			*conf = []qualifiedConfig{cfg}
-			return nil
-		}
+	if err := viper.BindPFlag(key, cmd.Flags().Lookup(name)); err != nil {
+		panic(err)
 	}
+}
 
-	return fmt.Errorf("%s not found", name)
+func bindP(cmd *cobra.Command, key string, flagName ...string) {
+	name := key
+	if len(flagName) == 1 {
+		name = flagName[0]
+	}
+	if err := viper.BindPFlag(key, cmd.PersistentFlags().Lookup(name)); err != nil {
+		panic(err)
+	}
 }

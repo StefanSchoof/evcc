@@ -7,30 +7,23 @@ import (
 	"time"
 
 	"github.com/evcc-io/evcc/api"
-	"github.com/evcc-io/evcc/cmd/shutdown"
-	"github.com/evcc-io/evcc/server"
-	"github.com/evcc-io/evcc/util"
-	"github.com/evcc-io/evcc/util/request"
+	"github.com/evcc-io/evcc/util/config"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
-
-// cmdEcho.AddCommand
 
 // chargerRampCmd represents the charger command
 var chargerRampCmd = &cobra.Command{
 	Use:   "ramp [name]",
 	Short: "Ramp current from 6..16A in configurable steps",
+	Args:  cobra.MaximumNArgs(1),
 	Run:   runChargerRamp,
 }
 
 func init() {
 	chargerCmd.AddCommand(chargerRampCmd)
 
-	chargerRampCmd.PersistentFlags().StringP(flagName, "n", "", fmt.Sprintf(flagNameDescription, "charger"))
-	chargerRampCmd.PersistentFlags().Bool(flagHeaders, false, flagHeadersDescription)
-	chargerRampCmd.PersistentFlags().StringP(flagDigits, "", "0", "fractional digits (0..2)")
-	chargerRampCmd.PersistentFlags().StringP(flagDelay, "", "1s", "ramp delay")
+	chargerRampCmd.Flags().StringP(flagDigits, "", "0", "fractional digits (0..2)")
+	chargerRampCmd.Flags().StringP(flagDelay, "", "1s", "ramp delay")
 }
 
 func ramp(c api.Charger, digits int, delay time.Duration) {
@@ -72,59 +65,39 @@ func ramp(c api.Charger, digits int, delay time.Duration) {
 }
 
 func runChargerRamp(cmd *cobra.Command, args []string) {
-	util.LogLevel(viper.GetString("log"), viper.GetStringMapString("levels"))
-	log.INFO.Printf("evcc %s", server.FormattedVersion())
-
 	// load config
-	if err := loadConfigFile(cfgFile, &conf); err != nil {
+	if err := loadConfigFile(&conf, !cmd.Flag(flagIgnoreDatabase).Changed); err != nil {
 		log.FATAL.Fatal(err)
 	}
 
 	// setup environment
-	if err := configureEnvironment(conf); err != nil {
+	if err := configureEnvironment(cmd, &conf); err != nil {
 		log.FATAL.Fatal(err)
 	}
 
-	// full http request log
-	if cmd.PersistentFlags().Lookup(flagHeaders).Changed {
-		request.LogHeaders = true
-	}
-
-	// select single charger
-	if err := selectByName(cmd, &conf.Chargers); err != nil {
+	if err := configureChargers(conf.Chargers, args...); err != nil {
 		log.FATAL.Fatal(err)
 	}
 
-	if err := cp.configureChargers(conf); err != nil {
-		log.FATAL.Fatal(err)
-	}
-
-	stopC := make(chan struct{})
-	go shutdown.Run(stopC)
-
-	chargers := cp.chargers
-	if len(args) == 1 {
-		arg := args[0]
-		chargers = map[string]api.Charger{arg: cp.Charger(arg)}
-	}
-
-	digits, err := strconv.Atoi(cmd.PersistentFlags().Lookup(flagDigits).Value.String())
+	digits, err := strconv.Atoi(cmd.Flags().Lookup(flagDigits).Value.String())
 	if err != nil {
 		log.ERROR.Fatalln(err)
 	}
 
-	delay, err := time.ParseDuration(cmd.PersistentFlags().Lookup(flagDelay).Value.String())
+	delay, err := time.ParseDuration(cmd.Flags().Lookup(flagDelay).Value.String())
 	if err != nil {
 		log.ERROR.Fatalln(err)
 	}
 
-	for _, c := range chargers {
-		if _, ok := c.(api.ChargerEx); digits > 0 && !ok {
+	chargers := config.Chargers().Devices()
+
+	for _, v := range config.Instances(chargers) {
+		if _, ok := v.(api.ChargerEx); digits > 0 && !ok {
 			log.ERROR.Fatalln("charger does not support mA control")
 		}
-		ramp(c, digits, delay)
+		ramp(v, digits, delay)
 	}
 
-	close(stopC)
-	<-shutdown.Done()
+	// wait for shutdown
+	<-shutdownDoneC()
 }

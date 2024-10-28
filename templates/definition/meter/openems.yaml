@@ -2,15 +2,16 @@ template: openems
 products:
   - brand: OpenEMS
   - brand: FENECON
-guidedsetup:
-  enable: true
 params:
   - name: usage
     choice: ["grid", "pv", "battery"]
+    allinone: true
   - name: host
   - name: password
     mask: true
     default: user
+    advanced: true
+  - name: capacity
     advanced: true
 render: |
   type: custom
@@ -29,7 +30,8 @@ render: |
       type: basic
       user: x
       password: {{ .password }}
-    jq: .value
+    jq: (.value // 0)
+  {{- if eq .usage "battery" }}
   soc:
     source: http
     uri: http://{{ .host }}/rest/channel/_sum/EssSoc
@@ -37,4 +39,6 @@ render: |
       type: basic
       user: x
       password: {{ .password }}
-    jq: .value
+    jq: (.value // 0)
+  capacity: {{ .capacity }} # kWh
+  {{- end }}

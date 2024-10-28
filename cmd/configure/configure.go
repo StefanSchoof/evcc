@@ -6,6 +6,7 @@ import (
 	"text/template"
 
 	"github.com/Masterminds/sprig/v3"
+	"github.com/evcc-io/evcc/util/templates"
 )
 
 type device struct {
@@ -16,18 +17,17 @@ type device struct {
 }
 
 type loadpoint struct {
-	Title             string // TODO Perspektivisch können wir was aus core wiederverwenden, für später
-	Charger           string
-	ChargeMeter       string
-	Vehicles          []string
-	Mode              string
-	MinCurrent        int
-	MaxCurrent        int
-	Phases            int
-	ResetOnDisconnect string
+	Title       string // TODO Perspektivisch können wir was aus core wiederverwenden, für später
+	Charger     string
+	ChargeMeter string
+	Vehicle     string
+	Mode        string
+	MinCurrent  int
+	MaxCurrent  int
+	Phases      int
 }
 
-type config struct {
+type globalConfig struct {
 	Meters     []device
 	Chargers   []device
 	Vehicles   []device
@@ -42,19 +42,22 @@ type config struct {
 	EEBUS        string
 	MQTT         string
 	SponsorToken string
+	Plant        string
+	Telemetry    bool
 }
 
 type Configure struct {
-	config config
+	config globalConfig
 }
 
 // AddDevice adds a device reference of a specific category to the configuration
 // e.g. a PV meter to site.PVs
 func (c *Configure) AddDevice(d device, category DeviceCategory) {
 	switch DeviceCategories[category].class {
-	case DeviceClassCharger:
+	case templates.Charger:
 		c.config.Chargers = append(c.config.Chargers, d)
-	case DeviceClassMeter:
+
+	case templates.Meter:
 		c.config.Meters = append(c.config.Meters, d)
 		switch DeviceCategories[category].categoryFilter {
 		case DeviceCategoryGridMeter:
@@ -64,22 +67,27 @@ func (c *Configure) AddDevice(d device, category DeviceCategory) {
 		case DeviceCategoryBatteryMeter:
 			c.config.Site.Batteries = append(c.config.Site.Batteries, d.Name)
 		}
-	case DeviceClassVehicle:
+
+	case templates.Vehicle:
 		c.config.Vehicles = append(c.config.Vehicles, d)
+
+	default:
+		panic("invalid class for category: " + category)
 	}
 }
 
 // DevicesOfClass returns all configured devices of a given DeviceClass
-func (c *Configure) DevicesOfClass(class DeviceClass) []device {
+func (c *Configure) DevicesOfClass(class templates.Class) []device {
 	switch class {
-	case DeviceClassCharger:
+	case templates.Charger:
 		return c.config.Chargers
-	case DeviceClassMeter:
+	case templates.Meter:
 		return c.config.Meters
-	case DeviceClassVehicle:
+	case templates.Vehicle:
 		return c.config.Vehicles
+	default:
+		panic("invalid class: " + class.String())
 	}
-	return nil
 }
 
 // AddLoadpoint adds a loadpoint to the configuration
@@ -108,7 +116,7 @@ var configTmpl string
 
 // RenderConfiguration creates a yaml configuration
 func (c *Configure) RenderConfiguration() ([]byte, error) {
-	tmpl, err := template.New("yaml").Funcs(template.FuncMap(sprig.FuncMap())).Parse(configTmpl)
+	tmpl, err := template.New("yaml").Funcs(sprig.FuncMap()).Parse(configTmpl)
 	if err != nil {
 		panic(err)
 	}

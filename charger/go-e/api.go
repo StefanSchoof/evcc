@@ -18,7 +18,9 @@ type Response interface {
 	Enabled() bool
 	CurrentPower() float64
 	ChargedEnergy() float64
+	TotalEnergy() float64
 	Currents() (float64, float64, float64)
+	Voltages() (float64, float64, float64)
 	Identify() string
 }
 
@@ -64,7 +66,7 @@ func (c *LocalAPI) upgradeV2() {
 	err := c.response("api/status?filter=alw", &res)
 
 	if err == nil {
-		c.uri = c.uri + "/api"
+		c.uri += "/api"
 	} else {
 		c.v2 = false
 	}

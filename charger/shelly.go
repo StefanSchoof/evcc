@@ -10,8 +10,8 @@ import (
 
 // Shelly charger implementation
 type Shelly struct {
-	conn         *shelly.Connection
-	standbypower float64
+	conn *shelly.Switch
+	*switchSocket
 }
 
 func init() {
@@ -20,34 +20,36 @@ func init() {
 
 // NewShellyFromConfig creates a Shelly charger from generic config
 func NewShellyFromConfig(other map[string]interface{}) (api.Charger, error) {
-	cc := struct {
+	var cc struct {
+		embed        `mapstructure:",squash"`
 		URI          string
 		User         string
 		Password     string
 		Channel      int
 		StandbyPower float64
-	}{}
+	}
 
 	if err := util.DecodeOther(other, &cc); err != nil {
 		return nil, err
 	}
 
-	return NewShelly(cc.URI, cc.User, cc.Password, cc.Channel, cc.StandbyPower)
+	return NewShelly(cc.embed, cc.URI, cc.User, cc.Password, cc.Channel, cc.StandbyPower)
 }
 
 // NewShelly creates Shelly charger
-func NewShelly(uri, user, password string, channel int, standbypower float64) (*Shelly, error) {
+func NewShelly(embed embed, uri, user, password string, channel int, standbypower float64) (*Shelly, error) {
 	conn, err := shelly.NewConnection(uri, user, password, channel)
 	if err != nil {
 		return nil, err
 	}
 
-	shelly := &Shelly{
-		conn:         conn,
-		standbypower: standbypower,
+	c := &Shelly{
+		conn: shelly.NewSwitch(conn),
 	}
 
-	return shelly, nil
+	c.switchSocket = NewSwitchSocket(&embed, c.Enabled, c.conn.CurrentPower, standbypower)
+
+	return c, nil
 }
 
 // Enabled implements the api.Charger interface
@@ -57,8 +59,7 @@ func (c *Shelly) Enabled() (bool, error) {
 
 // Enable implements the api.Charger interface
 func (c *Shelly) Enable(enable bool) error {
-	err := c.conn.Enable(enable)
-	if err != nil {
+	if err := c.conn.Enable(enable); err != nil {
 		return err
 	}
 
@@ -74,54 +75,9 @@ func (c *Shelly) Enable(enable bool) error {
 	}
 }
 
-// MaxCurrent implements the api.Charger interface
-func (c *Shelly) MaxCurrent(current int64) error {
-	return nil
-}
+var _ api.MeterEnergy = (*Shelly)(nil)
 
-// Status implements the api.Charger interface
-func (c *Shelly) Status() (api.ChargeStatus, error) {
-	res := api.StatusB
-
-	// static mode
-	if c.standbypower < 0 {
-		on, err := c.Enabled()
-		if on {
-			res = api.StatusC
-		}
-
-		return res, err
-	}
-
-	// standby power mode
-	power, err := c.CurrentPower()
-	if power > c.standbypower {
-		res = api.StatusC
-	}
-
-	return res, err
-}
-
-var _ api.Meter = (*Shelly)(nil)
-
-// CurrentPower implements the api.Meter interface
-func (c *Shelly) CurrentPower() (float64, error) {
-	var power float64
-
-	// set fix static power in static mode
-	if c.standbypower < 0 {
-		on, err := c.Enabled()
-		if on {
-			power = -c.standbypower
-		}
-		return power, err
-	}
-
-	// ignore power in standby mode
-	power, err := c.conn.CurrentPower()
-	if power <= c.standbypower {
-		power = 0
-	}
-
-	return power, err
+// TotalEnergy implements the api.MeterEnergy interface
+func (c *Shelly) TotalEnergy() (float64, error) {
+	return c.conn.TotalEnergy()
 }

@@ -30,10 +30,11 @@ func (m *ChargeTimer) StartCharge(continued bool) {
 	m.Lock()
 	defer m.Unlock()
 
-	m.charging = true
 	m.start = m.clck.Now()
 
-	if !continued {
+	if continued {
+		m.charging = true
+	} else {
 		m.duration = 0
 	}
 }
@@ -47,8 +48,8 @@ func (m *ChargeTimer) StopCharge() {
 	m.duration += m.clck.Since(m.start)
 }
 
-// ChargingTime implements the api.ChargeTimer interface
-func (m *ChargeTimer) ChargingTime() (time.Duration, error) {
+// ChargeDuration implements the api.ChargeTimer interface
+func (m *ChargeTimer) ChargeDuration() (time.Duration, error) {
 	m.Lock()
 	defer m.Unlock()
 

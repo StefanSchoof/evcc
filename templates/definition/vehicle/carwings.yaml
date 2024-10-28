@@ -4,11 +4,9 @@ products:
     description:
       generic: Leaf (pre 2019)
 params:
-  - preset: vehiclebase
-  - preset: vehicleidentify
-  - preset: vehiclecloud
+  - preset: vehicle-base
+  - preset: vehicle-identify
 render: |
   type: carwings
   {{ include "vehicle-base" . }}
   {{ include "vehicle-identify" . }}
-  {{ include "vehicle-cloud" . }}

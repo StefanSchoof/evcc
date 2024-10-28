@@ -11,7 +11,6 @@ import (
 	"github.com/evcc-io/evcc/provider"
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/request"
-
 	"github.com/joeshaw/carwings"
 )
 
@@ -111,7 +110,7 @@ func (v *CarWings) status() (carwings.BatteryStatus, error) {
 	// api result is stale
 	if v.refreshKey != "" {
 		if err := v.refreshResult(); err != nil {
-			return *new(carwings.BatteryStatus), err
+			return carwings.BatteryStatus{}, err
 		}
 	}
 
@@ -120,7 +119,7 @@ func (v *CarWings) status() (carwings.BatteryStatus, error) {
 	if err == nil {
 		if elapsed := time.Since(bs.Timestamp); elapsed > carwingsStatusExpiry {
 			if err = v.refreshRequest(); err != nil {
-				return *new(carwings.BatteryStatus), err
+				return carwings.BatteryStatus{}, err
 			}
 
 			err = api.ErrMustRetry
@@ -174,8 +173,8 @@ func (v *CarWings) refreshRequest() (err error) {
 	return err
 }
 
-// SoC implements the api.Vehicle interface
-func (v *CarWings) SoC() (float64, error) {
+// Soc implements the api.Vehicle interface
+func (v *CarWings) Soc() (float64, error) {
 	res, err := v.statusG()
 	if err == nil {
 		return float64(res.StateOfCharge), nil
@@ -218,16 +217,17 @@ func (v *CarWings) Range() (int64, error) {
 var _ api.VehicleClimater = (*CarWings)(nil)
 
 // Climater implements the api.VehicleClimater interface
-func (v *CarWings) Climater() (active bool, outsideTemp float64, targetTemp float64, err error) {
+func (v *CarWings) Climater() (bool, error) {
 	res, err := v.climateG()
 
-	if err == nil {
-		active = res.Running
-		targetTemp = float64(res.Temperature)
-		outsideTemp = targetTemp
-
-		return active, outsideTemp, targetTemp, err
+	// silence ErrClimateStatusUnavailable errors
+	if errors.Is(err, carwings.ErrClimateStatusUnavailable) {
+		return false, nil
 	}
 
-	return false, 0, 0, err
+	if err == nil {
+		return res.Running, nil
+	}
+
+	return false, err
 }

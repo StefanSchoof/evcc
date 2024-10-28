@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/denisbrodbeck/machineid"
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/loadpoint"
 	"github.com/evcc-io/evcc/core/site"
 	"github.com/evcc-io/evcc/server"
 	"github.com/evcc-io/evcc/util"
+	"github.com/evcc-io/evcc/util/machine"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/koron/go-ssdp"
@@ -34,9 +34,7 @@ const (
 	maxAge           = 1800
 )
 
-var (
-	serverName = "EVCC SEMP Server " + server.Version
-)
+var serverName = "EVCC SEMP Server " + server.Version
 
 // SEMP is the SMA SEMP server
 type SEMP struct {
@@ -271,7 +269,7 @@ func (s *SEMP) deviceInfoQuery(w http.ResponseWriter, r *http.Request) {
 	if did == "" {
 		msg.DeviceInfo = append(msg.DeviceInfo, s.allDeviceInfo()...)
 	} else {
-		for id, lp := range s.site.LoadPoints() {
+		for id, lp := range s.site.Loadpoints() {
 			if did != s.deviceID(id) {
 				continue
 			}
@@ -296,7 +294,7 @@ func (s *SEMP) deviceStatusQuery(w http.ResponseWriter, r *http.Request) {
 	if did == "" {
 		msg.DeviceStatus = append(msg.DeviceStatus, s.allDeviceStatus()...)
 	} else {
-		for id, lp := range s.site.LoadPoints() {
+		for id, lp := range s.site.Loadpoints() {
 			if did != s.deviceID(id) {
 				continue
 			}
@@ -321,7 +319,7 @@ func (s *SEMP) devicePlanningQuery(w http.ResponseWriter, r *http.Request) {
 	if did == "" {
 		msg.PlanningRequest = append(msg.PlanningRequest, s.allPlanningRequest()...)
 	} else {
-		for id, lp := range s.site.LoadPoints() {
+		for id, lp := range s.site.Loadpoints() {
 			if did != s.deviceID(id) {
 				continue
 			}
@@ -346,7 +344,7 @@ func (s *SEMP) serialNumber(id int) string {
 func UniqueDeviceID() ([]byte, error) {
 	bytes := 6
 
-	mid, err := machineid.ProtectedID("evcc-semp")
+	mid, err := machine.ProtectedID("evcc-semp")
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +377,7 @@ func (s *SEMP) deviceInfo(id int, lp loadpoint.API) DeviceInfo {
 	res := DeviceInfo{
 		Identification: Identification{
 			DeviceID:     s.deviceID(id),
-			DeviceName:   lp.Name(),
+			DeviceName:   lp.Title(),
 			DeviceType:   sempCharger,
 			DeviceSerial: s.serialNumber(id),
 			DeviceVendor: "github.com/evcc-io/evcc",
@@ -390,8 +388,8 @@ func (s *SEMP) deviceInfo(id int, lp loadpoint.API) DeviceInfo {
 			OptionalEnergy:       true,
 		},
 		Characteristics: Characteristics{
-			MinPowerConsumption: int(lp.GetMinPower()),
-			MaxPowerConsumption: int(lp.GetMaxPower()),
+			MinPowerConsumption: int(lp.EffectiveMinPower()),
+			MaxPowerConsumption: int(lp.EffectiveMaxPower()),
 		},
 	}
 
@@ -399,7 +397,7 @@ func (s *SEMP) deviceInfo(id int, lp loadpoint.API) DeviceInfo {
 }
 
 func (s *SEMP) allDeviceInfo() (res []DeviceInfo) {
-	for id, lp := range s.site.LoadPoints() {
+	for id, lp := range s.site.Loadpoints() {
 		res = append(res, s.deviceInfo(id, lp))
 	}
 
@@ -434,7 +432,7 @@ func (s *SEMP) deviceStatus(id int, lp loadpoint.API) DeviceStatus {
 }
 
 func (s *SEMP) allDeviceStatus() (res []DeviceStatus) {
-	for id, lp := range s.site.LoadPoints() {
+	for id, lp := range s.site.Loadpoints() {
 		res = append(res, s.deviceStatus(id, lp))
 	}
 
@@ -467,8 +465,8 @@ func (s *SEMP) planningRequest(id int, lp loadpoint.API) (res PlanningRequest) {
 		minEnergy = 0
 	}
 
-	maxPowerConsumption := int(lp.GetMaxPower())
-	minPowerConsumption := int(lp.GetMinPower())
+	maxPowerConsumption := int(lp.EffectiveMaxPower())
+	minPowerConsumption := int(lp.EffectiveMinPower())
 	if mode == api.ModeNow {
 		minPowerConsumption = maxPowerConsumption
 	}
@@ -491,7 +489,7 @@ func (s *SEMP) planningRequest(id int, lp loadpoint.API) (res PlanningRequest) {
 }
 
 func (s *SEMP) allPlanningRequest() (res []PlanningRequest) {
-	for id, lp := range s.site.LoadPoints() {
+	for id, lp := range s.site.Loadpoints() {
 		if pr := s.planningRequest(id, lp); len(pr.Timeframe) > 0 {
 			res = append(res, pr)
 		}
@@ -514,7 +512,7 @@ func (s *SEMP) deviceControlHandler(w http.ResponseWriter, r *http.Request) {
 	for _, dev := range msg.DeviceControl {
 		did := dev.DeviceID
 
-		for id, lp := range s.site.LoadPoints() {
+		for id, lp := range s.site.Loadpoints() {
 			if did != s.deviceID(id) {
 				continue
 			}

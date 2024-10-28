@@ -1,12 +1,13 @@
 template: volvo
 products:
   - brand: Volvo
+    description:
+      de: veraltet
+      en: legacy
 params:
-  - preset: vehiclebase
-  - preset: vehicleidentify
-  - preset: vehiclecloud
+  - preset: vehicle-base
+  - preset: vehicle-identify
 render: |
   type: volvo
   {{ include "vehicle-base" . }}
   {{ include "vehicle-identify" . }}
-  {{ include "vehicle-cloud" . }}

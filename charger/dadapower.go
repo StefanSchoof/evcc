@@ -9,6 +9,7 @@ import (
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/util"
 	"github.com/evcc-io/evcc/util/modbus"
+	"github.com/evcc-io/evcc/util/sponsor"
 )
 
 const (
@@ -19,14 +20,14 @@ const (
 	dadapowerRegChargingAllowed     = 1000
 	dadapowerRegChargeCurrentLimit  = 1001
 	dadapowerRegActivePhases        = 1002
+	dadapowerRegCurrents            = 1006
 	dadapowerRegActiveEnergy        = 1009
+	dadapowerRegChargingPortState   = 1015
 	dadapowerRegPlugState           = 1016
 	dadapowerRegEnergyImportSession = 1017
 	dadapowerRegEnergyImportTotal   = 1025
 	dadapowerRegIdentification      = 1040 // 20
 )
-
-var dadapowerRegCurrents = []uint16{1006, 1007, 1008}
 
 // Dadapower charger implementation
 type Dadapower struct {
@@ -57,6 +58,10 @@ func NewDadapower(uri string, id uint8) (*Dadapower, error) {
 		return nil, err
 	}
 
+	if !sponsor.IsAuthorized() {
+		return nil, api.ErrSponsorRequired
+	}
+
 	log := util.NewLogger("dadapower")
 	conn.Logger(log.TRACE)
 
@@ -81,7 +86,7 @@ func NewDadapower(uri string, id uint8) (*Dadapower, error) {
 }
 
 func (wb *Dadapower) heartbeat() {
-	for range time.NewTicker(time.Minute).C {
+	for range time.Tick(time.Minute) {
 		if _, err := wb.conn.ReadInputRegisters(dadapowerRegFailsafeTimeout, 1); err != nil {
 			wb.log.ERROR.Println("heartbeat:", err)
 		}
@@ -91,7 +96,6 @@ func (wb *Dadapower) heartbeat() {
 // Status implements the api.Charger interface
 func (wb *Dadapower) Status() (api.ChargeStatus, error) {
 	b, err := wb.conn.ReadInputRegisters(dadapowerRegPlugState+wb.regOffset, 1)
-
 	if err != nil {
 		return api.StatusNone, err
 	}
@@ -110,6 +114,20 @@ func (wb *Dadapower) Status() (api.ChargeStatus, error) {
 	default:
 		return api.StatusNone, errors.New("invalid response")
 	}
+}
+
+var _ api.StatusReasoner = (*Dadapower)(nil)
+
+// StatusReason implements the api.StatusReasoner interface
+func (wb *Dadapower) StatusReason() (api.Reason, error) {
+	res := api.ReasonUnknown
+
+	b, err := wb.conn.ReadInputRegisters(dadapowerRegChargingPortState+wb.regOffset, 1)
+	if err == nil && binary.BigEndian.Uint16(b) == 3 {
+		res = api.ReasonWaitingForAuthorization
+	}
+
+	return res, err
 }
 
 // Enabled implements the api.Charger interface
@@ -188,29 +206,51 @@ func (wb *Dadapower) ChargedEnergy() (float64, error) {
 	return float64(binary.BigEndian.Uint64(b)) / 1e3, err
 }
 
-var _ api.MeterCurrent = (*Dadapower)(nil)
+var _ api.PhaseCurrents = (*Dadapower)(nil)
 
-// Currents implements the api.MeterCurrent interface
+// Currents implements the api.PhaseCurrents interface
 func (wb *Dadapower) Currents() (float64, float64, float64, error) {
-	var currents []float64
-	for _, regCurrent := range dadapowerRegCurrents {
-		b, err := wb.conn.ReadInputRegisters(regCurrent+wb.regOffset, 1)
-		if err != nil {
-			return 0, 0, 0, err
-		}
-
-		currents = append(currents, float64(binary.BigEndian.Uint16(b))/100)
+	b, err := wb.conn.ReadInputRegisters(dadapowerRegCurrents+wb.regOffset, 3)
+	if err != nil {
+		return 0, 0, 0, err
 	}
 
-	return currents[0], currents[1], currents[2], nil
+	var res [3]float64
+	for i := range res {
+		res[i] = float64(binary.BigEndian.Uint16(b[2*i:])) / 100
+	}
+
+	return res[0], res[1], res[2], nil
 }
 
-var _ api.ChargePhases = (*Dadapower)(nil)
+var _ api.PhaseSwitcher = (*Dadapower)(nil)
 
-// Phases1p3p implements the api.ChargePhases interface
+// Phases1p3p implements the api.PhaseSwitcher interface
 func (wb *Dadapower) Phases1p3p(phases int) error {
-	_, err := wb.conn.WriteSingleRegister(dadapowerRegActivePhases+wb.regOffset, uint16(phases))
-	return err
+	enabled, err := wb.Enabled()
+	if err != nil {
+		return err
+	}
+
+	if enabled {
+		if err := wb.Enable(false); err != nil {
+			return err
+		}
+		time.Sleep(5 * time.Second)
+	}
+
+	if _, err := wb.conn.WriteSingleRegister(dadapowerRegActivePhases+wb.regOffset, uint16(phases)); err != nil {
+		return err
+	}
+
+	if enabled {
+		time.Sleep(2 * time.Second)
+		if err := wb.Enable(true); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 var _ api.Identifier = (*Dadapower)(nil)
@@ -222,7 +262,7 @@ func (wb *Dadapower) Identify() (string, error) {
 		return "", err
 	}
 
-	return string(u), nil
+	return bytesAsString(u), nil
 }
 
 var _ api.Diagnosis = (*Dadapower)(nil)

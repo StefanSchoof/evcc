@@ -11,16 +11,14 @@ import (
 	"github.com/google/go-github/v32/github"
 )
 
-var (
-	latest *github.RepositoryRelease
-)
+var latest *github.RepositoryRelease
 
 // Run regularly checks version
-func Run(log *util.Logger, httpd webServer, tee util.TeeAttacher, outChan chan<- util.Param) {
+func Run(log *util.Logger, httpd webServer, outChan chan<- util.Param) {
 	u := &watch{
 		log:     log,
 		outChan: outChan,
-		repo:    NewRepo(server.Owner, server.Repository),
+		repo:    NewRepo(log, owner, repository),
 	}
 
 	httpd.Router().PathPrefix("/api/update").HandlerFunc(u.updateHandler)

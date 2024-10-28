@@ -3,14 +3,15 @@ products:
   - brand: Kostal
     description:
       generic: Piko MP Plus
-guidedsetup:
-  enable: true
-  linked:
-    - template: kostal-ksem-inverter
-      usage: grid
-    - template: kostal-ksem
-      usage: grid
-      excludetemplate: kostal-ksem-inverter
+  - brand: Steca
+    description:
+      generic: coolcept fleX
+linked:
+  - template: kostal-ksem-inverter
+    usage: grid
+  - template: kostal-ksem
+    usage: grid
+    excludetemplate: kostal-ksem-inverter
 params:
   - name: usage
     choice: ["pv"]
@@ -23,4 +24,4 @@ render: |
     source: http
     uri: http://{{ .host }}/measurements.xml
     jq: .root.Device.Measurements.Measurement[] | select(.attrType == "AC_Power") | if has ("attrValue") then .attrValue else "0" end | tonumber
-  {{- end -}}
+  {{- end }}

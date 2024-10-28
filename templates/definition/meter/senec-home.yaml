@@ -3,19 +3,27 @@ products:
   - brand: SENEC
     description:
       generic: .Home
-guidedsetup:
-  enable: true
 params:
   - name: usage
     choice: ["grid", "pv", "battery"]
+    allinone: true
   - name: host
+  - name: schema
+    type: choice
+    validvalues:
+      - https
+      - http
+    default: https
+  - name: capacity
+    advanced: true
 render: |
   type: custom
   power:
     source: http
     unpack: hex
     decode: float32
-    uri: http://{{ .host }}/lala.cgi
+    uri: {{ .schema }}://{{ .host }}/lala.cgi
+    insecure: true
     method: POST
     headers:
     - content-type: application/json
@@ -31,9 +39,12 @@ render: |
     body: '{"ENERGY":{"GUI_BAT_DATA_POWER":""}}'
     jq: .ENERGY.GUI_BAT_DATA_POWER | sub("fl_"; "")
     scale: -1
+  {{- end }}
+  {{- if eq .usage "battery" }}
   soc:
     source: http
-    uri: http://{{ .host }}/lala.cgi
+    uri: {{ .schema }}://{{ .host }}/lala.cgi
+    insecure: true
     method: POST
     headers:
     - content-type: application/json
@@ -41,4 +52,5 @@ render: |
     jq: .ENERGY.GUI_BAT_DATA_FUEL_CHARGE | sub("fl_"; "")
     unpack: hex
     decode: float32
+  capacity: {{ .capacity }} # kWh
   {{- end }}

@@ -3,9 +3,20 @@
   "title": "EVCC configuration schema",
   "type": "object",
   "properties": {
-    "uri": {
-      "type": "string",
-      "format": "uri"
+    "network": {
+      "type": "object",
+      "description": "Network",
+      "properties": {
+        "schema": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "port": {
+          "type": "integer"
+        }
+      }
     },
     "interval": {
       "$ref": "#/definitions/duration"
@@ -23,6 +34,45 @@
     },
     "sponsortoken": {
       "type": "string"
+    },
+    "plant": {
+      "type": "string"
+    },
+    "telemetry": {
+      "type": "boolean"
+    },
+    "database": {
+      "type": "object",
+      "description": "Database",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "dsn": {
+          "type": "string"
+        }
+      }
+    },
+    "tariffs": {
+      "type": "object",
+      "description": "Tariffs",
+      "properties": {
+        "currency": {
+          "type": "string"
+        },
+        "grid": {
+          "description": "Grid tariff",
+          "$ref": "#/definitions/typedObject"
+        },
+        "feedin": {
+          "description": "Feed-in tariff",
+          "$ref": "#/definitions/typedObject"
+        },
+        "planner": {
+          "description": "Planner tariff",
+          "$ref": "#/definitions/typedObject"
+        }
+      }
     },
     "chargers": {
       "type": "array",
@@ -47,8 +97,17 @@
           "title": {
             "type": "string"
           },
+          "icon": {
+            "type": "string"
+          },
           "capacity": {
             "type": "integer"
+          },
+          "phases": {
+            "type": "integer"
+          },
+          "identifiers": {
+            "type": "array"
           },
           "user": {
             "type": "string"
@@ -68,10 +127,7 @@
               "mode": {
                 "$ref": "#/definitions/mode"
               },
-              "minSoC": {
-                "type": "integer"
-              },
-              "targetSoC": {
+              "priority": {
                 "type": "integer"
               },
               "minCurrent": {
@@ -101,11 +157,11 @@
               "type": "string"
             },
             "pv": {
-              "type": "string"
-            },
-            "pvs": {
-              "description": "List of pv inverters/meters",
-              "type": "array",
+              "description": "PV inverter/meter (1 or more)",
+              "type": [
+                "string",
+                "array"
+              ],
               "items": {
                 "type": "string"
               },
@@ -113,22 +169,35 @@
               "uniqueItems": true
             },
             "battery": {
-              "type": "string"
-            },
-            "batteries": {
-              "description": "List of home batteries",
-              "type": "array",
+              "description": "Home battery (1 or more)",
+              "type": [
+                "string",
+                "array"
+              ],
               "items": {
                 "type": "string"
               },
               "minItems": 1,
               "uniqueItems": true
+            },
+            "aux": {
+              "description": "Auxiliary meters (0 or more)",
+              "type": [
+                "string",
+                "array"
+              ],
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
             }
           }
         },
-        "prioritySoC": {
+        "residualPower": {
+          "type": "number"
         },
-        "bufferSoC": {
+        "maxGridSupplyWhileBatteryCharging": {
+          "type": "number"
         }
       }
     },
@@ -147,25 +216,26 @@
           "mode": {
             "$ref": "#/definitions/mode"
           },
-          "resetOnDisconnect": {
-            "type": "boolean"
-          },
           "charger": {
             "type": "string"
           },
-          "meters": {
-            "type": "object",
-            "properties": {
-              "charge": {
-                "type": "string"
-              }
-            }
+          "meter": {
+            "type": "string"
           },
-          "vehicles": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "minCurrent": {
+            "type": "integer"
+          },
+          "maxCurrent": {
+            "type": "integer"
+          },
+          "phases": {
+            "type": "integer"
+          },
+          "priority": {
+            "type": "integer"
+          },
+          "vehicle": {
+            "type": "string"
           },
           "soc": {
             "type": "object",
@@ -181,25 +251,10 @@
                   }
                 }
               },
-              "min": {
-                "type": "integer"
-              },
-              "target": {
-                "type": "integer"
-              },
               "estimate": {
                 "type": "boolean"
               }
             }
-          },
-          "phases": {
-            "type": "integer"
-          },
-          "minCurrent": {
-            "type": "integer"
-          },
-          "maxCurrent": {
-            "type": "integer"
           },
           "guardDuration": {
             "$ref": "#/definitions/duration"
@@ -249,6 +304,17 @@
           "type": "string"
         },
         "template": {
+          "type": "string"
+        }
+      }
+    },
+    "typedObject": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
           "type": "string"
         }
       }

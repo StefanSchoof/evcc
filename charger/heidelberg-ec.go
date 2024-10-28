@@ -21,6 +21,7 @@ package charger
 import (
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/util"
@@ -30,15 +31,17 @@ import (
 
 // HeidelbergEC charger implementation
 type HeidelbergEC struct {
+	log     *util.Logger
 	conn    *modbus.Connection
 	current uint16
 	wakeup  bool
 }
 
 const (
-	hecRegFirmware       = 1   // Input
 	hecRegVehicleStatus  = 5   // Input
+	hecRegCurrents       = 6   // Input 6,7,8
 	hecRegTemperature    = 9   // Input
+	hecRegVoltages       = 10  // Input 10,11,12
 	hecRegPower          = 14  // Input
 	hecRegEnergy         = 17  // Input
 	hecRegTimeoutConfig  = 257 // Holding
@@ -49,8 +52,6 @@ const (
 
 	hecStandbyDisabled = 4 // disable standby
 )
-
-var hecRegCurrents = []uint16{6, 7, 8}
 
 func init() {
 	registry.Add("heidelberg", NewHeidelbergECFromConfig)
@@ -69,7 +70,7 @@ func NewHeidelbergECFromConfig(other map[string]interface{}) (api.Charger, error
 		return nil, err
 	}
 
-	return NewHeidelbergEC(cc.URI, cc.Device, cc.Comset, cc.Baudrate, modbus.ProtocolFromRTU(cc.RTU), cc.ID)
+	return NewHeidelbergEC(cc.URI, cc.Device, cc.Comset, cc.Baudrate, cc.Protocol(), cc.ID)
 }
 
 // NewHeidelbergEC creates HeidelbergEC charger
@@ -87,14 +88,37 @@ func NewHeidelbergEC(uri, device, comset string, baudrate int, proto modbus.Prot
 	conn.Logger(log.TRACE)
 
 	wb := &HeidelbergEC{
+		log:     log,
 		conn:    conn,
 		current: 60, // assume min current
 	}
 
-	// disable standby to prevent comm loss
-	err = wb.set(hecRegStandbyConfig, hecStandbyDisabled)
+	// https://github.com/evcc-io/evcc/issues/15437
+	conn.Delay(100 * time.Millisecond)
 
-	return wb, err
+	// disable standby to prevent comm loss
+	if err := wb.set(hecRegStandbyConfig, hecStandbyDisabled); err != nil {
+		return nil, err
+	}
+
+	// get failsafe timeout from charger
+	b, err := wb.conn.ReadHoldingRegisters(hecRegTimeoutConfig, 1)
+	if err != nil {
+		return nil, fmt.Errorf("failsafe timeout: %w", err)
+	}
+	if u := binary.BigEndian.Uint16(b) / 4; u > 0 {
+		go wb.heartbeat(time.Duration(u) * time.Millisecond)
+	}
+
+	return wb, nil
+}
+
+func (wb *HeidelbergEC) heartbeat(timeout time.Duration) {
+	for range time.Tick(timeout) {
+		if _, err := wb.Status(); err != nil {
+			wb.log.ERROR.Println("heartbeat:", err)
+		}
+	}
 }
 
 func (wb *HeidelbergEC) set(reg, val uint16) error {
@@ -131,10 +155,24 @@ func (wb *HeidelbergEC) Status() (api.ChargeStatus, error) {
 	case 9:
 		return api.StatusE, nil
 	case 10:
+		// ensure RemoteLock is disabled after wake-up
+		b, err := wb.conn.ReadHoldingRegisters(hecRegRemoteLock, 1)
+		if err != nil {
+			return api.StatusNone, err
+		}
+
+		// unlock
+		if binary.BigEndian.Uint16(b) != 1 {
+			if err := wb.set(hecRegRemoteLock, 1); err != nil {
+				return api.StatusNone, err
+			}
+		}
+
+		// keep status B2 during wakeup
 		if wb.wakeup {
-			// keep status B2 during wakeup
 			return api.StatusB, nil
 		}
+
 		return api.StatusF, nil
 	default:
 		return api.StatusNone, fmt.Errorf("invalid status: %d", sb)
@@ -175,10 +213,6 @@ func (wb *HeidelbergEC) Enable(enable bool) error {
 
 // MaxCurrent implements the api.Charger interface
 func (wb *HeidelbergEC) MaxCurrent(current int64) error {
-	if current < 6 {
-		return fmt.Errorf("invalid current %d", current)
-	}
-
 	return wb.MaxCurrentMillis(float64(current))
 }
 
@@ -227,30 +261,39 @@ func (wb *HeidelbergEC) TotalEnergy() (float64, error) {
 	return float64(binary.BigEndian.Uint32(b)) / 1e3, nil
 }
 
-var _ api.MeterCurrent = (*HeidelbergEC)(nil)
-
-// Currents implements the api.MeterCurrent interface
-func (wb *HeidelbergEC) Currents() (float64, float64, float64, error) {
-	var currents []float64
-	for _, regCurrent := range hecRegCurrents {
-		b, err := wb.conn.ReadInputRegisters(regCurrent, 1)
-		if err != nil {
-			return 0, 0, 0, err
-		}
-
-		currents = append(currents, float64(binary.BigEndian.Uint16(b))/10)
+// getPhaseValues returns 3 sequential register values
+func (wb *HeidelbergEC) getPhaseValues(reg uint16, divider float64) (float64, float64, float64, error) {
+	b, err := wb.conn.ReadInputRegisters(reg, 3)
+	if err != nil {
+		return 0, 0, 0, err
 	}
 
-	return currents[0], currents[1], currents[2], nil
+	var res [3]float64
+	for i := range res {
+		res[i] = float64(binary.BigEndian.Uint16(b[2*i:])) / divider
+	}
+
+	return res[0], res[1], res[2], nil
+}
+
+var _ api.PhaseCurrents = (*HeidelbergEC)(nil)
+
+// Currents implements the api.PhaseCurrents interface
+func (wb *HeidelbergEC) Currents() (float64, float64, float64, error) {
+	return wb.getPhaseValues(hecRegCurrents, 10)
+}
+
+var _ api.PhaseVoltages = (*HeidelbergEC)(nil)
+
+// Voltages implements the api.PhaseVoltages interface
+func (wb *HeidelbergEC) Voltages() (float64, float64, float64, error) {
+	return wb.getPhaseValues(hecRegVoltages, 1)
 }
 
 var _ api.Diagnosis = (*HeidelbergEC)(nil)
 
 // Diagnose implements the api.Diagnosis interface
 func (wb *HeidelbergEC) Diagnose() {
-	if b, err := wb.conn.ReadInputRegisters(hecRegFirmware, 2); err == nil {
-		fmt.Printf("Firmware:\t%d.%d.%d\n", b[1], b[2], b[3])
-	}
 	if b, err := wb.conn.ReadInputRegisters(hecRegTemperature, 1); err == nil {
 		fmt.Printf("Temperature:\t%.1fC\n", float64(int16(binary.BigEndian.Uint16(b)))/10)
 	}
@@ -268,18 +311,17 @@ func (wb *HeidelbergEC) Diagnose() {
 	}
 }
 
-var _ api.AlarmClock = (*HeidelbergEC)(nil)
+var _ api.Resurrector = (*HeidelbergEC)(nil)
 
-// WakeUp implements the api.AlarmClock interface
+// WakeUp implements the api.Resurrector interface
 func (wb *HeidelbergEC) WakeUp() error {
 	// force status F by locking
-	err := wb.set(hecRegRemoteLock, 0)
-	if err == nil {
-		// Always takes at least ~10 sec to return to normal operation
+	if err := wb.set(hecRegRemoteLock, 0); err == nil {
+		// Takes at least ~10 sec to return to normal operation
 		// after locking even if unlocking immediately.
 		wb.wakeup = true
-		// return to normal operation by unlocking after ~10 sec
-		err = wb.set(hecRegRemoteLock, 1)
 	}
-	return err
+
+	// return to normal operation by unlocking after ~10 sec
+	return wb.set(hecRegRemoteLock, 1)
 }

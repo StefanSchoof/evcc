@@ -1,93 +1,52 @@
 package api
 
 import (
-	"fmt"
+	"context"
+	"io"
 	"net/http"
-	"reflect"
-	"strings"
 	"time"
-
-	"github.com/fatih/structs"
-	"github.com/gorilla/mux"
 )
 
-//go:generate mockgen -package mock -destination ../mock/mock_api.go github.com/evcc-io/evcc/api Charger,ChargeState,ChargePhases,Identifier,Meter,MeterEnergy,Vehicle,ChargeRater,Battery
+//go:generate mockgen -package api -destination mock.go github.com/evcc-io/evcc/api Charger,ChargeState,CurrentLimiter,CurrentGetter,PhaseSwitcher,PhaseGetter,Identifier,Meter,MeterEnergy,PhaseCurrents,Vehicle,ChargeRater,Battery,Tariff,BatteryController,Circuit
 
-// ChargeMode are charge modes modeled after OpenWB
-type ChargeMode string
-
-// Charge modes
-const (
-	ModeEmpty ChargeMode = ""
-	ModeOff   ChargeMode = "off"
-	ModeNow   ChargeMode = "now"
-	ModeMinPV ChargeMode = "minpv"
-	ModePV    ChargeMode = "pv"
-)
-
-// String implements Stringer
-func (c ChargeMode) String() string {
-	return string(c)
-}
-
-// ChargeStatus is the EV's charging status from A to F
-type ChargeStatus string
-
-// Charging states
-const (
-	StatusNone ChargeStatus = ""
-	StatusA    ChargeStatus = "A" // Fzg. angeschlossen: nein    Laden aktiv: nein    - Kabel nicht angeschlossen
-	StatusB    ChargeStatus = "B" // Fzg. angeschlossen:   ja    Laden aktiv: nein    - Kabel angeschlossen
-	StatusC    ChargeStatus = "C" // Fzg. angeschlossen:   ja    Laden aktiv:   ja    - Laden
-	StatusD    ChargeStatus = "D" // Fzg. angeschlossen:   ja    Laden aktiv:   ja    - Laden mit Lüfter
-	StatusE    ChargeStatus = "E" // Fzg. angeschlossen:   ja    Laden aktiv: nein    - Fehler (Kurzschluss)
-	StatusF    ChargeStatus = "F" // Fzg. angeschlossen:   ja    Laden aktiv: nein    - Fehler (Ausfall Wallbox)
-)
-
-// String implements Stringer
-func (c ChargeStatus) String() string {
-	return string(c)
-}
-
-// ActionConfig defines an action to take on event
-type ActionConfig struct {
-	Mode       *ChargeMode `mapstructure:"mode,omitempty"`       // Charge Mode
-	MinCurrent *float64    `mapstructure:"minCurrent,omitempty"` // Minimum Current
-	MaxCurrent *float64    `mapstructure:"maxCurrent,omitempty"` // Maximum Current
-	MinSoC     *int        `mapstructure:"minSoC,omitempty"`     // Minimum SoC
-	TargetSoC  *int        `mapstructure:"targetSoC,omitempty"`  // Target SoC
-}
-
-// String implements Stringer and returns the ActionConfig as comma-separated key:value string
-func (a ActionConfig) String() string {
-	var s []string
-	for k, v := range structs.Map(a) {
-		val := reflect.ValueOf(v)
-		if v != nil && !val.IsNil() {
-			s = append(s, fmt.Sprintf("%s:%v", k, val.Elem()))
-		}
-	}
-	return strings.Join(s, ", ")
-}
-
-// Meter is able to provide current power in W
+// Meter provides total active power in W
 type Meter interface {
 	CurrentPower() (float64, error)
 }
 
-// MeterEnergy is able to provide current energy in kWh
+// MeterEnergy provides total energy in kWh
 type MeterEnergy interface {
 	TotalEnergy() (float64, error)
 }
 
-// MeterCurrent is able to provide per-line current A
-type MeterCurrent interface {
+// PhaseCurrents provides per-phase current A
+type PhaseCurrents interface {
 	Currents() (float64, float64, float64, error)
 }
 
-// Battery is able to provide battery SoC in %
+// PhaseVoltages provides per-phase voltage V
+type PhaseVoltages interface {
+	Voltages() (float64, float64, float64, error)
+}
+
+// PhasePowers provides signed per-phase power W
+type PhasePowers interface {
+	Powers() (float64, float64, float64, error)
+}
+
+// Battery provides battery Soc in %
 type Battery interface {
-	SoC() (float64, error)
+	Soc() (float64, error)
+}
+
+// BatteryCapacity provides a capacity in kWh
+type BatteryCapacity interface {
+	Capacity() float64
+}
+
+// MaxACPower provides max AC power in W
+type MaxACPower interface {
+	MaxACPower() float64
 }
 
 // ChargeState provides current charging status
@@ -95,12 +54,31 @@ type ChargeState interface {
 	Status() (ChargeStatus, error)
 }
 
-// Charger is able to provide current charging status and enable/disable charging
+type StatusReasoner interface {
+	StatusReason() (Reason, error)
+}
+
+// CurrentController provides settings charging maximum charging current
+type CurrentController interface {
+	MaxCurrent(current int64) error
+}
+
+// CurrentGetter provides getting charging maximum charging current for validation
+type CurrentGetter interface {
+	GetMaxCurrent() (float64, error)
+}
+
+// BatteryController optionally allows to control home battery (dis)charging behaviour
+type BatteryController interface {
+	SetBatteryMode(BatteryMode) error
+}
+
+// Charger provides current charging status and enable/disable charging
 type Charger interface {
 	ChargeState
 	Enabled() (bool, error)
 	Enable(enable bool) error
-	MaxCurrent(current int64) error
+	CurrentController
 }
 
 // ChargerEx provides milli-amp precision charger current control
@@ -108,9 +86,13 @@ type ChargerEx interface {
 	MaxCurrentMillis(current float64) error
 }
 
-// ChargePhases provides 1p3p switching
-type ChargePhases interface {
+// PhaseSwitcher provides 1p3p switching
+type PhaseSwitcher interface {
 	Phases1p3p(phases int) error
+}
+
+type PhaseGetter interface {
+	GetPhases() (int, error)
 }
 
 // Diagnosis is a helper interface that allows to dump diagnostic data to console
@@ -120,7 +102,7 @@ type Diagnosis interface {
 
 // ChargeTimer provides current charge cycle duration
 type ChargeTimer interface {
-	ChargingTime() (time.Duration, error)
+	ChargeDuration() (time.Duration, error)
 }
 
 // ChargeRater provides charged energy amount in kWh
@@ -138,17 +120,26 @@ type Authorizer interface {
 	Authorize(key string) error
 }
 
+// PhaseDescriber returns the number of availablephases
+type PhaseDescriber interface {
+	Phases() int
+}
+
 // Vehicle represents the EV and it's battery
 type Vehicle interface {
 	Battery
+	BatteryCapacity
+	IconDescriber
+	FeatureDescriber
+	PhaseDescriber
 	Title() string
-	Capacity() int64
-	Phases() int
+	SetTitle(string)
 	Identifiers() []string
 	OnIdentified() ActionConfig
 }
 
-// VehicleFinishTimer provides estimated charge cycle finish time
+// VehicleFinishTimer provides estimated charge cycle finish time.
+// Finish time is normalized for charging to 100% and may deviate from vehicle display if soc limit is effective.
 type VehicleFinishTimer interface {
 	FinishTime() (time.Time, error)
 }
@@ -160,7 +151,7 @@ type VehicleRange interface {
 
 // VehicleClimater provides climatisation data
 type VehicleClimater interface {
-	Climater() (active bool, outsideTemp float64, targetTemp float64, err error)
+	Climater() (bool, error)
 }
 
 // VehicleOdometer returns the vehicles milage
@@ -173,29 +164,80 @@ type VehiclePosition interface {
 	Position() (float64, float64, error)
 }
 
-// VehicleChargeController allows to start/stop the charging session on the vehicle side
-type VehicleChargeController interface {
-	StartCharge() error
-	StopCharge() error
+// CurrentLimiter returns the current limits
+type CurrentLimiter interface {
+	GetMinMaxCurrent() (float64, float64, error)
 }
 
-// AlarmClock provides wakeup calls to the vehicle with an API call or a CP interrupt from the charger
-type AlarmClock interface {
+// SocLimiter returns the soc limit
+type SocLimiter interface {
+	GetLimitSoc() (int64, error)
+}
+
+// ChargeController allows to start/stop the charging session on the vehicle side
+type ChargeController interface {
+	ChargeEnable(bool) error
+}
+
+// Resurrector provides wakeup calls to the vehicle with an API call or a CP interrupt from the charger
+type Resurrector interface {
 	WakeUp() error
 }
 
+// Tariff is a tariff capable of retrieving tariff rates
 type Tariff interface {
-	IsCheap() (bool, error)
-	CurrentPrice() (float64, error) // EUR/kWh, CHF/kWh, ...
+	Rates() (Rates, error)
+	Type() TariffType
 }
 
-type WebController interface {
-	WebControl(*mux.Router)
-}
-
-// ProviderLogin is the ability to provide OAuth authentication through the ui
-type ProviderLogin interface {
+// AuthProvider is the ability to provide OAuth authentication through the ui
+type AuthProvider interface {
 	SetCallbackParams(baseURL, redirectURL string, authenticated chan<- bool)
 	LoginHandler() http.HandlerFunc
 	LogoutHandler() http.HandlerFunc
+}
+
+// IconDescriber optionally provides an icon
+type IconDescriber interface {
+	Icon() string
+}
+
+// FeatureDescriber optionally provides a list of supported non-api features
+type FeatureDescriber interface {
+	Features() []Feature
+}
+
+// CsvWriter converts to csv
+type CsvWriter interface {
+	WriteCsv(context.Context, io.Writer) error
+}
+
+// CircuitMeasurements is the measurements a circuit or load must deliver
+type CircuitMeasurements interface {
+	GetChargePower() float64
+	GetMaxPhaseCurrent() float64
+}
+
+// CircuitLoad represents a loadpoint attached to a circuit
+type CircuitLoad interface {
+	CircuitMeasurements
+	GetCircuit() Circuit
+}
+
+// Circuit defines the load control domain
+type Circuit interface {
+	CircuitMeasurements
+	GetTitle() string
+	SetTitle(string)
+	GetParent() Circuit
+	RegisterChild(child Circuit)
+	Wrap(parent Circuit) error
+	HasMeter() bool
+	GetMaxPower() float64
+	GetMaxCurrent() float64
+	SetMaxPower(float64)
+	SetMaxCurrent(float64)
+	Update([]CircuitLoad) error
+	ValidateCurrent(old, new float64) float64
+	ValidatePower(old, new float64) float64
 }

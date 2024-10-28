@@ -5,11 +5,9 @@ products:
       de: Andere
       en: Others
 params:
-  - preset: vehiclebase
-  - preset: vehicleidentify
-  - preset: vehiclecloud
+  - preset: vehicle-base
+  - preset: vehicle-identify
 render: |
   type: skoda
   {{ include "vehicle-base" . }}
   {{ include "vehicle-identify" . }}
-  {{ include "vehicle-cloud" . }}

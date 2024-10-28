@@ -1,0 +1,24 @@
+template: shelly-1pm
+products:
+  - brand: Shelly
+    description:
+      generic: 1PM, EM, Plug S
+group: switchsockets
+params:
+  - name: usage
+    choice: ["pv", "charge"]
+  - name: host
+  - name: user
+  - name: password
+  - name: channel
+    default: 0
+render: |
+  type: shelly
+  uri: http://{{ .host }}  # shelly device ip address (local)
+  {{- if .user }}
+  user: {{ .user }}
+  {{- end }}
+  {{- if .password }}
+  password: {{ .password }}
+  {{- end }}
+  channel: {{ .channel }}  # shelly device relay channel

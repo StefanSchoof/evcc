@@ -2,15 +2,11 @@ package server
 
 import "fmt"
 
+const DevVersion = "0.0.0"
+
 var (
-	// Repository name
-	Repository = "evcc"
-
-	// Owner of repository
-	Owner = "andig"
-
 	// Version of executable
-	Version = "0.0.1-alpha"
+	Version = DevVersion
 
 	// Commit of executable
 	Commit = ""

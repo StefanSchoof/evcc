@@ -3,8 +3,6 @@ products:
   - brand: Kostal
     description:
       generic: Piko (legacy)
-guidedsetup:
-  enable: true
 params:
   - name: usage
     choice: ["pv"]
@@ -23,6 +21,6 @@ render: |
       type: basic
       user: {{ .user }}
       password: {{ .password }}
-    regex: '(?s)aktuell<\/td>\s*<td[^>]*>\s*(\d+)'
+    regex: '(?s)aktuell</td>\s+<td[^>]+>\s+(\d+)</td>'
     default: 0
-  {{- end -}}
+  {{- end }}

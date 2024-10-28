@@ -2,14 +2,11 @@ template: seat
 products:
   - brand: Seat
     description:
-      de: Andere
-      en: Others
+      generic: CupraConnect Gen3 (Ateca, Leon, Formentor)
 params:
-  - preset: vehiclebase
-  - preset: vehicleidentify
-  - preset: vehiclecloud
+  - preset: vehicle-base
+  - preset: vehicle-identify
 render: |
   type: seat
   {{ include "vehicle-base" . }}
   {{ include "vehicle-identify" . }}
-  {{ include "vehicle-cloud" . }}

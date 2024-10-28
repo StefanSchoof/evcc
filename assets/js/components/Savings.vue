@@ -2,13 +2,13 @@
 	<div>
 		<button
 			class="btn btn-link pe-0 text-decoration-none evcc-default-text text-nowrap d-flex align-items-end"
-			data-bs-toggle="modal"
-			data-bs-target="#savingsModal"
+			data-testid="savings-button"
+			@click="openModal"
 		>
-			<span class="d-inline d-sm-none">{{
+			<span class="d-inline d-sm-none text-decoration-underline">{{
 				$t("footer.savings.footerShort", { percent })
 			}}</span
-			><span class="d-none d-sm-inline">{{
+			><span class="d-none d-sm-inline text-decoration-underline">{{
 				$t("footer.savings.footerLong", { percent })
 			}}</span>
 			<shopicon-regular-sun class="ms-2 text-evcc"></shopicon-regular-sun>
@@ -23,11 +23,9 @@
 				tabindex="-1"
 				role="dialog"
 				aria-hidden="true"
+				data-testid="savings-modal"
 			>
-				<div
-					class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"
-					role="document"
-				>
+				<div class="modal-dialog modal-lg modal-dialog-centered" role="document">
 					<div class="modal-content">
 						<div class="modal-header">
 							<h5 class="modal-title">
@@ -41,67 +39,160 @@
 							></button>
 						</div>
 						<div class="modal-body">
-							<p>
-								{{
-									$t("footer.savings.sinceServerStart", {
-										since: fmtTimeAgo(secondsSinceStart()),
-									})
-								}}
-							</p>
+							<ul class="nav nav-tabs">
+								<li class="nav-item">
+									<a
+										class="nav-link"
+										:class="{ active: !communityView }"
+										href="#"
+										@click.prevent="showMyData"
+									>
+										{{ $t("footer.savings.tabTitle") }}
+									</a>
+								</li>
+								<li class="nav-item">
+									<a
+										class="nav-link"
+										:class="{ active: communityView }"
+										href="#"
+										@click.prevent="showCommunity"
+									>
+										{{ $t("footer.community.tabTitle") }}
+									</a>
+								</li>
+							</ul>
 
-							<div class="d-block d-lg-flex mb-4">
-								<SavingsTile
-									class="text-accent1"
-									icon="sun"
-									:title="$t('footer.savings.percentTitle')"
-									:value="percent"
-									unit="%"
-									:sub1="
-										$t('footer.savings.percentSelf', {
-											self: fmtKw(selfConsumptionCharged * 1000, true, false),
-										})
-									"
-									:sub2="
-										$t('footer.savings.percentGrid', {
-											grid: fmtKw(gridCharged * 1000, true, false),
-										})
-									"
-								/>
+							<div v-if="!communityView" class="my-4">
+								<div class="d-block d-lg-flex mb-2 justify-content-between">
+									<SavingsTile
+										class="text-accent1"
+										icon="sun"
+										data-testid="savings-tile-solar"
+										:title="$t('footer.savings.percentTitle')"
+										:value="fmtNumber(solarPercentage, 1)"
+										unit="%"
+										:sub1="
+											$t('footer.savings.percentSelf', {
+												self: fmtW(
+													solarCharged * 1000,
+													POWER_UNIT.KW,
+													false,
+													0
+												),
+											})
+										"
+										:sub2="
+											$t('footer.savings.percentGrid', {
+												grid: fmtW(
+													gridCharged * 1000,
+													POWER_UNIT.KW,
+													false,
+													0
+												),
+											})
+										"
+									/>
 
-								<SavingsTile
-									class="text-accent2"
-									icon="receivepayment"
-									:title="$t('footer.savings.priceTitle')"
-									:value="effectivePriceFormatted.value"
-									:unit="effectivePriceFormatted.unit"
-									:sub1="
-										$t('footer.savings.priceFeedIn', {
-											feedInPrice: fmtPricePerKWh(feedInPrice, currency),
-										})
-									"
-									:sub2="
-										$t('footer.savings.priceGrid', {
-											gridPrice: fmtPricePerKWh(gridPrice, currency),
-										})
-									"
-								/>
+									<SavingsTile
+										class="text-accent2"
+										icon="receivepayment"
+										data-testid="savings-tile-price"
+										:title="$t('footer.savings.priceTitle')"
+										:value="priceConfigured ? avgPriceFormatted.value : '__'"
+										:unit="avgPriceFormatted.unit"
+										:sub1="
+											priceConfigured
+												? `${fmtMoney(
+														(referenceGrid - avgPrice) * totalCharged,
+														currency,
+														false
+													)} ${fmtCurrencySymbol(currency)} ${$t(
+														'footer.savings.moneySaved'
+													)}`
+												: ''
+										"
+									/>
 
-								<SavingsTile
-									class="text-accent3"
-									icon="coinjar"
-									:title="$t('footer.savings.savingsTitle')"
-									:value="fmtMoney(amount, currency)"
-									:unit="fmtCurrencySymbol(currency)"
-									:sub1="$t('footer.savings.savingsComparedToGrid')"
-									:sub2="
-										$t('footer.savings.savingsTotalEnergy', {
-											total: fmtKw(totalCharged * 1000, true, false),
-										})
-									"
-								/>
+									<SavingsTile
+										class="text-accent3"
+										icon="eco"
+										data-testid="savings-tile-co2"
+										:title="$t('footer.savings.co2Title')"
+										:value="co2Configured ? fmtNumber(avgCo2, 0) : '__'"
+										unit="g/kWh"
+										:sub1="
+											region && co2Configured
+												? `${fmtNumber(
+														((region.co2 - avgCo2) * totalCharged) /
+															1000,
+														0,
+														'kilogram'
+													)} ${$t('footer.savings.co2Saved')}`
+												: ''
+										"
+									/>
+								</div>
+								<div class="my-3 lh-2">
+									<div class="d-flex">
+										<label for="savingsPeriod" class="me-1">
+											{{ $t("footer.savings.periodLabel") }}
+										</label>
+										<CustomSelect
+											id="savingsPeriod"
+											:selected="period"
+											:options="periodOptions"
+											data-testid="savings-period-select"
+											@change="selectPeriod($event.target.value)"
+										>
+											<span class="text-decoration-underline evcc-gray">
+												{{ $t(`footer.savings.period.${period}`) }}
+											</span>
+										</CustomSelect>
+									</div>
+									<div
+										v-if="region"
+										class="d-flex flex-wrap"
+										data-testid="savings-reference"
+									>
+										<div class="me-1">
+											{{ $t("footer.savings.referenceLabel") }}
+										</div>
+										<div class="evcc-gray me-1">
+											{{
+												priceConfigured
+													? fmtPricePerKWh(referenceGrid, currency)
+													: "___"
+											}}
+											({{ $t("footer.savings.referenceGrid") }}),
+										</div>
+										<div class="evcc-gray d-flex">
+											<div class="me-1">⌀ {{ fmtCo2Medium(region.co2) }}</div>
+											<CustomSelect
+												class="me-1 evcc-gray"
+												:selected="region.name"
+												:options="regionOptions"
+												data-testid="savings-region-select"
+												@change="selectRegion($event.target.value)"
+											>
+												(<span class="text-decoration-underline">{{
+													region.name
+												}}</span
+												>)
+											</CustomSelect>
+										</div>
+									</div>
+									<div v-if="!priceConfigured || !co2Configured">
+										<a :href="tariffLink" class="evcc-gray" target="_blank">
+											{{ $t("footer.savings.configurePriceCo2") }}
+										</a>
+									</div>
+								</div>
 							</div>
-
-							<Sponsor :sponsor="sponsor" />
+							<div v-else class="my-4">
+								<LiveCommunity />
+								<TelemetrySettings :sponsorActive="!!sponsor.name" />
+							</div>
+							<Sponsor v-bind="sponsor" />
 						</div>
 					</div>
 				</div>
@@ -111,66 +202,138 @@
 </template>
 
 <script>
+import Modal from "bootstrap/js/dist/modal";
 import formatter from "../mixins/formatter";
 import Sponsor from "./Sponsor.vue";
 import SavingsTile from "./SavingsTile.vue";
+import LiveCommunity from "./LiveCommunity.vue";
+import TelemetrySettings from "./TelemetrySettings.vue";
+import CustomSelect from "./CustomSelect.vue";
+import co2Reference from "../co2Reference";
+import settings from "../settings";
+import api from "../api";
+import { docsPrefix } from "../i18n";
 
 export default {
 	name: "Savings",
-	components: { Sponsor, SavingsTile },
+	components: { Sponsor, SavingsTile, LiveCommunity, TelemetrySettings, CustomSelect },
 	mixins: [formatter],
 	props: {
-		selfConsumptionPercent: Number,
-		since: { type: Number, default: 0 },
-		sponsor: String,
-		amount: { type: Number, default: 0 },
-		effectivePrice: { type: Number, default: 0 },
-		totalCharged: { type: Number, default: 0 },
-		gridCharged: { type: Number, default: 0 },
-		selfConsumptionCharged: { type: Number, default: 0 },
-		gridPrice: { type: Number },
-		feedInPrice: { type: Number },
+		statistics: { type: Object, default: () => ({}) },
+		co2Configured: Boolean,
+		sponsor: Object,
 		currency: String,
 	},
+	data() {
+		return {
+			communityView: false,
+			telemetryEnabled: false,
+			period: settings.savingsPeriod || "30d",
+			selectedRegion: settings.savingsRegion || "Germany",
+			referenceGrid: undefined,
+		};
+	},
 	computed: {
-		percent() {
-			return Math.round(this.selfConsumptionPercent) || 0;
+		tariffLink() {
+			return `${docsPrefix()}/docs/reference/configuration/tariffs`;
 		},
-		effectivePriceFormatted() {
-			const [value, unit] = this.fmtPricePerKWh(this.effectivePrice, this.currency).split(
-				" "
+		percent() {
+			return this.fmtPercentage(this.solarPercentage || 0);
+		},
+		regionOptions() {
+			return co2Reference.regions.map((r) => ({
+				value: r.name,
+				name: `${r.name} (${this.fmtCo2Short(r.co2)})`,
+			}));
+		},
+		region() {
+			// previously selected region
+			if (this.selectedRegion) {
+				const result = co2Reference.regions.find((r) => r.name === this.selectedRegion);
+				if (result) {
+					return result;
+				}
+			}
+
+			// first region
+			return co2Reference.regions[0];
+		},
+		periodOptions() {
+			return ["30d", "365d", "thisYear", "total"].map((p) => ({
+				value: p,
+				name: this.$t(`footer.savings.period.${p}`),
+			}));
+		},
+		avgPriceFormatted() {
+			const value = this.fmtPricePerKWh(
+				this.currentStatistics.avgPrice,
+				this.currency,
+				false,
+				false
 			);
+			const unit = this.pricePerKWhUnit(this.currency);
 			return { value, unit };
+		},
+		currentStatistics() {
+			return this.statistics[this.period] || {};
+		},
+		totalCharged() {
+			return this.currentStatistics.chargedKWh;
+		},
+		solarPercentage() {
+			return this.currentStatistics.solarPercentage;
+		},
+		solarCharged() {
+			return (this.solarPercentage / 100) * this.totalCharged;
+		},
+		gridCharged() {
+			return this.totalCharged - this.solarCharged;
+		},
+		avgPrice() {
+			return this.currentStatistics.avgPrice;
+		},
+		avgCo2() {
+			return this.currentStatistics.avgCo2;
+		},
+		priceConfigured() {
+			return this.referenceGrid !== undefined;
 		},
 	},
 	methods: {
-		secondsSinceStart() {
-			return this.since * 1000 - Date.now();
+		showCommunity() {
+			this.communityView = true;
+		},
+		showMyData() {
+			this.communityView = false;
+		},
+		openModal() {
+			const modal = Modal.getOrCreateInstance(document.getElementById("savingsModal"));
+			modal.show();
+			this.updateReferenceGrid();
+		},
+		selectPeriod(period) {
+			this.period = period;
+			settings.savingsPeriod = period;
+		},
+		selectRegion(region) {
+			this.selectedRegion = region;
+			settings.savingsRegion = region;
+		},
+		updateReferenceGrid: async function () {
+			try {
+				const res = await api.get(`tariff/grid`, {
+					validateStatus: (status) => status >= 200 && status < 500,
+				});
+				const { rates } = res.data.result;
+				this.referenceGrid =
+					rates.reduce((acc, slot) => {
+						return acc + slot.price;
+					}, 0) / rates.length;
+			} catch (e) {
+				this.referenceGrid = undefined;
+				console.error(e);
+			}
 		},
 	},
 };
 </script>
-<style scoped>
-.chart {
-	height: 2.5rem;
-}
-
-.chart-item--self {
-	background-color: var(--evcc-self);
-}
-.chart-item--grid {
-	background-color: var(--evcc-grid);
-}
-.chart-item--no-data {
-	background-color: var(--bs-gray-medium);
-}
-
-.chart-item {
-	transition-property: width;
-	transition-duration: var(--evcc-transition-medium);
-	transition-timing-function: linear;
-}
-.tile-icon {
-	width: 70px;
-}
-</style>

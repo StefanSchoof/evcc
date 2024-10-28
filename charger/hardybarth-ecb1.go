@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -188,7 +189,7 @@ func (wb *HardyBarth) post(uri string, data url.Values) error {
 // MaxCurrent implements the api.Charger interface
 func (wb *HardyBarth) MaxCurrent(current int64) error {
 	uri := fmt.Sprintf("%s/chargecontrols/%d/mode/manual/ampere", wb.uri, wb.chargecontrol)
-	data := url.Values{"manualmodeamp": {fmt.Sprintf("%d", current)}}
+	data := url.Values{"manualmodeamp": {strconv.FormatInt(current, 10)}}
 	return wb.post(uri, data)
 }
 
@@ -216,9 +217,9 @@ func (wb *HardyBarth) TotalEnergy() (float64, error) {
 	return res.Data[obis.EnergyConsumption], nil
 }
 
-var _ api.MeterCurrent = (*HardyBarth)(nil)
+var _ api.PhaseCurrents = (*HardyBarth)(nil)
 
-// Currents implements the api.MeterCurrent interface
+// Currents implements the api.PhaseCurrents interface
 func (wb *HardyBarth) Currents() (float64, float64, float64, error) {
 	res, err := wb.meterG()
 	if err != nil {

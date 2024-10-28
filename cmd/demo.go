@@ -2,28 +2,27 @@ package cmd
 
 import (
 	_ "embed" // for yaml
+	"fmt"
+	"strings"
 
-	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
+	"github.com/evcc-io/evcc/api/globalconfig"
 )
 
 //go:embed demo.yaml
 var demoYaml string
 
-func demoConfig(conf *config) {
-	demo := map[string]interface{}{}
-
-	if err := yaml.Unmarshal([]byte(demoYaml), &demo); err != nil {
-		log.FATAL.Fatalf("failed decoding demo config: %+v", err)
+func demoConfig(conf *globalconfig.All) error {
+	viper.SetConfigType("yaml")
+	if err := viper.ReadConfig(strings.NewReader(demoYaml)); err != nil {
+		return fmt.Errorf("failed decoding demo config: %w", err)
 	}
 
-	for k, v := range demo {
-		viper.Set(k, v)
+	if err := viper.UnmarshalExact(conf); err != nil {
+		return fmt.Errorf("failed loading demo config: %w", err)
 	}
 
-	if err := viper.UnmarshalExact(&conf); err != nil {
-		log.FATAL.Fatalf("failed loading demo config: %v", err)
-	}
+	// parse log levels after reading config
+	parseLogLevels()
 
-	conf.Network.Port = defaultPort
+	return nil
 }

@@ -1,13 +1,12 @@
 template: jaguar-landrover
+deprecated: true
 products:
   - brand: Jaguar
   - brand: Land Rover
 params:
-  - preset: vehiclebase
-  - preset: vehicleidentify
-  - preset: vehiclecloud
+  - preset: vehicle-base
+  - preset: vehicle-identify
 render: |
   type: jaguar
   {{ include "vehicle-base" . }}
   {{ include "vehicle-identify" . }}
-  {{ include "vehicle-cloud" . }}

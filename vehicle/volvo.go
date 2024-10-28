@@ -38,6 +38,10 @@ func NewVolvoFromConfig(other map[string]interface{}) (api.Vehicle, error) {
 		return nil, err
 	}
 
+	if cc.User == "" || cc.Password == "" {
+		return nil, api.ErrMissingCredentials
+	}
+
 	basicAuth := transport.BasicAuthHeader(cc.User, cc.Password)
 
 	log := util.NewLogger("volvo").Redact(cc.User, cc.Password, cc.VIN, basicAuth)
@@ -60,16 +64,16 @@ func NewVolvoFromConfig(other map[string]interface{}) (api.Vehicle, error) {
 		}),
 	}
 
-	v.statusG = provider.Cached(v.status, cc.Cache)
+	v.statusG = provider.Cached(v.StatusRequest, cc.Cache)
 
 	var err error
-	v.vin, err = ensureVehicle(cc.VIN, v.vehicles)
+	v.vin, err = ensureVehicle(cc.VIN, v.Vehicles)
 
 	return v, err
 }
 
 // vehicles implements returns the list of user vehicles
-func (v *Volvo) vehicles() ([]string, error) {
+func (v *Volvo) Vehicles() ([]string, error) {
 	var vehicles []string
 
 	uri := fmt.Sprintf("%s/customeraccounts", volvo.ApiURI)
@@ -92,7 +96,7 @@ func (v *Volvo) vehicles() ([]string, error) {
 	return vehicles, err
 }
 
-func (v *Volvo) status() (volvo.Status, error) {
+func (v *Volvo) StatusRequest() (volvo.Status, error) {
 	var res volvo.Status
 
 	uri := fmt.Sprintf("%s/vehicles/%s/status", volvo.ApiURI, v.vin)
@@ -104,8 +108,8 @@ func (v *Volvo) status() (volvo.Status, error) {
 	return res, err
 }
 
-// SoC implements the api.Vehicle interface
-func (v *Volvo) SoC() (float64, error) {
+// Soc implements the api.Vehicle interface
+func (v *Volvo) Soc() (float64, error) {
 	res, err := v.statusG()
 	return float64(res.HvBattery.HvBatteryLevel), err
 }

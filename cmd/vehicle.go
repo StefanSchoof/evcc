@@ -1,74 +1,82 @@
 package cmd
 
 import (
-	"fmt"
+	"strconv"
 
 	"github.com/evcc-io/evcc/api"
-	"github.com/evcc-io/evcc/server"
-	"github.com/evcc-io/evcc/util"
-	"github.com/evcc-io/evcc/util/request"
+	"github.com/evcc-io/evcc/util/config"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // vehicleCmd represents the vehicle command
 var vehicleCmd = &cobra.Command{
 	Use:   "vehicle [name]",
 	Short: "Query configured vehicles",
+	Args:  cobra.MaximumNArgs(1),
 	Run:   runVehicle,
 }
 
 func init() {
 	rootCmd.AddCommand(vehicleCmd)
-	vehicleCmd.PersistentFlags().StringP(flagName, "n", "", fmt.Sprintf(flagNameDescription, "vehicle"))
-	vehicleCmd.PersistentFlags().BoolP(flagStart, "a", false, flagStartDescription)
-	vehicleCmd.PersistentFlags().BoolP(flagStop, "o", false, flagStopDescription)
-	vehicleCmd.PersistentFlags().BoolP(flagWakeup, "w", false, flagWakeupDescription)
-	vehicleCmd.PersistentFlags().Bool(flagHeaders, false, flagHeadersDescription)
+	vehicleCmd.Flags().Int64P(flagCurrent, "i", 0, flagCurrentDescription)
+	vehicleCmd.Flags().BoolP(flagStart, "a", false, flagStartDescription)
+	vehicleCmd.Flags().BoolP(flagStop, "o", false, flagStopDescription)
+	vehicleCmd.Flags().BoolP(flagWakeup, "w", false, flagWakeupDescription)
+	vehicleCmd.Flags().Bool(flagDiagnose, false, flagDiagnoseDescription)
+	vehicleCmd.Flags().Bool(flagCloud, false, flagCloudDescription)
 }
 
 func runVehicle(cmd *cobra.Command, args []string) {
-	util.LogLevel(viper.GetString("log"), viper.GetStringMapString("levels"))
-	log.INFO.Printf("evcc %s", server.FormattedVersion())
-
 	// load config
-	if err := loadConfigFile(cfgFile, &conf); err != nil {
-		log.FATAL.Fatal(err)
+	if err := loadConfigFile(&conf, !cmd.Flag(flagIgnoreDatabase).Changed); err != nil {
+		fatal(err)
 	}
 
 	// setup environment
-	if err := configureEnvironment(conf); err != nil {
-		log.FATAL.Fatal(err)
+	if err := configureEnvironment(cmd, &conf); err != nil {
+		fatal(err)
 	}
 
-	// full http request log
-	if cmd.PersistentFlags().Lookup(flagHeaders).Changed {
-		request.LogHeaders = true
+	// use cloud
+	if cmd.Flags().Lookup(flagCloud).Changed {
+		for _, conf := range conf.Vehicles {
+			conf.Other["cloud"] = "true"
+		}
 	}
 
-	// select single vehicle
-	if err := selectByName(cmd, &conf.Vehicles); err != nil {
-		log.FATAL.Fatal(err)
+	if err := configureVehicles(conf.Vehicles, args...); err != nil {
+		fatal(err)
 	}
 
-	if err := cp.configureVehicles(conf); err != nil {
-		log.FATAL.Fatal(err)
-	}
-
-	vehicles := cp.vehicles
-	if len(args) == 1 {
-		arg := args[0]
-		vehicles = map[string]api.Vehicle{arg: cp.Vehicle(arg)}
-	}
-
-	d := dumper{len: len(vehicles)}
+	vehicles := config.Vehicles().Devices()
 
 	var flagUsed bool
-	for _, v := range vehicles {
-		if cmd.PersistentFlags().Lookup(flagWakeup).Changed {
+	for _, v := range config.Instances(vehicles) {
+		if flag := cmd.Flags().Lookup(flagCurrent); flag.Changed {
 			flagUsed = true
 
-			if vv, ok := v.(api.AlarmClock); ok {
+			f, err := strconv.ParseFloat(flag.Value.String(), 64)
+			if err != nil {
+				log.ERROR.Println("max current:", err)
+			} else {
+				if vv, ok := v.(api.ChargerEx); ok {
+					if err := vv.MaxCurrentMillis(f); err != nil {
+						log.ERROR.Println("max current:", err)
+					}
+				} else if vv, ok := v.(api.CurrentController); ok {
+					if err := vv.MaxCurrent(int64(f)); err != nil {
+						log.ERROR.Println("max current:", err)
+					}
+				} else {
+					log.ERROR.Println("max current: not implemented")
+				}
+			}
+		}
+
+		if cmd.Flags().Lookup(flagWakeup).Changed {
+			flagUsed = true
+
+			if vv, ok := v.(api.Resurrector); ok {
 				if err := vv.WakeUp(); err != nil {
 					log.ERROR.Println("wakeup:", err)
 				}
@@ -77,11 +85,11 @@ func runVehicle(cmd *cobra.Command, args []string) {
 			}
 		}
 
-		if cmd.PersistentFlags().Lookup(flagStart).Changed {
+		if cmd.Flags().Lookup(flagStart).Changed {
 			flagUsed = true
 
-			if vv, ok := v.(api.VehicleChargeController); ok {
-				if err := vv.StartCharge(); err != nil {
+			if vv, ok := v.(api.ChargeController); ok {
+				if err := vv.ChargeEnable(true); err != nil {
 					log.ERROR.Println("start charge:", err)
 				}
 			} else {
@@ -89,11 +97,11 @@ func runVehicle(cmd *cobra.Command, args []string) {
 			}
 		}
 
-		if cmd.PersistentFlags().Lookup(flagStop).Changed {
+		if cmd.Flags().Lookup(flagStop).Changed {
 			flagUsed = true
 
-			if vv, ok := v.(api.VehicleChargeController); ok {
-				if err := vv.StopCharge(); err != nil {
+			if vv, ok := v.(api.ChargeController); ok {
+				if err := vv.ChargeEnable(false); err != nil {
 					log.ERROR.Println("stop charge:", err)
 				}
 			} else {
@@ -103,8 +111,19 @@ func runVehicle(cmd *cobra.Command, args []string) {
 	}
 
 	if !flagUsed {
-		for name, v := range vehicles {
-			d.DumpWithHeader(name, v)
+		d := dumper{len: len(vehicles)}
+		flag := cmd.Flags().Lookup(flagDiagnose).Changed
+
+		for _, dev := range vehicles {
+			v := dev.Instance()
+
+			d.DumpWithHeader(dev.Config().Name, v)
+			if flag {
+				d.DumpDiagnosis(v)
+			}
 		}
 	}
+
+	// wait for shutdown
+	<-shutdownDoneC()
 }

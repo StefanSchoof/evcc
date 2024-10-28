@@ -3,6 +3,6 @@
 package main
 
 import (
-	_ "github.com/alvaroloes/enumer"
-	_ "github.com/golang/mock/mockgen"
+	_ "github.com/dmarkham/enumer"
+	_ "go.uber.org/mock/mockgen"
 )

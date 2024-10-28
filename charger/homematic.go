@@ -1,6 +1,8 @@
 package charger
 
 import (
+	"time"
+
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/meter/homematic"
 	"github.com/evcc-io/evcc/util"
@@ -8,8 +10,8 @@ import (
 
 // Homematic CCU charger implementation
 type CCU struct {
-	conn         *homematic.Connection
-	standbypower float64
+	conn *homematic.Connection
+	*switchSocket
 }
 
 func init() {
@@ -19,6 +21,7 @@ func init() {
 // NewCCUFromConfig creates a Homematic charger from generic config
 func NewCCUFromConfig(other map[string]interface{}) (api.Charger, error) {
 	cc := struct {
+		embed         `mapstructure:",squash"`
 		URI           string
 		Device        string
 		MeterChannel  string
@@ -26,25 +29,29 @@ func NewCCUFromConfig(other map[string]interface{}) (api.Charger, error) {
 		User          string
 		Password      string
 		StandbyPower  float64
-	}{}
+		Cache         time.Duration
+	}{
+		Cache: time.Second,
+	}
 
 	if err := util.DecodeOther(other, &cc); err != nil {
 		return nil, err
 	}
 
-	return NewCCU(cc.URI, cc.Device, cc.MeterChannel, cc.SwitchChannel, cc.User, cc.Password, cc.StandbyPower)
+	return NewCCU(cc.embed, cc.URI, cc.Device, cc.MeterChannel, cc.SwitchChannel, cc.User, cc.Password, cc.StandbyPower, cc.Cache)
 }
 
 // NewCCU creates a new connection with standbypower for charger
-func NewCCU(uri, deviceid, meterid, switchid, user, password string, standbypower float64) (*CCU, error) {
-	conn, err := homematic.NewConnection(uri, deviceid, meterid, switchid, user, password)
+func NewCCU(embed embed, uri, deviceid, meterid, switchid, user, password string, standbypower float64, cache time.Duration) (*CCU, error) {
+	conn, err := homematic.NewConnection(uri, deviceid, meterid, switchid, user, password, cache)
 
-	wb := &CCU{
-		conn:         conn,
-		standbypower: standbypower,
+	c := &CCU{
+		conn: conn,
 	}
 
-	return wb, err
+	c.switchSocket = NewSwitchSocket(&embed, c.Enabled, c.conn.CurrentPower, standbypower)
+
+	return c, err
 }
 
 // Enabled implements the api.Charger interface
@@ -55,56 +62,6 @@ func (c *CCU) Enabled() (bool, error) {
 // Enable implements the api.Charger interface
 func (c *CCU) Enable(enable bool) error {
 	return c.conn.Enable(enable)
-}
-
-// MaxCurrent implements the api.Charger interface
-func (c *CCU) MaxCurrent(current int64) error {
-	return nil
-}
-
-// Status implements the api.Charger interface
-func (c *CCU) Status() (api.ChargeStatus, error) {
-	res := api.StatusB
-	on, err := c.Enabled()
-	if err != nil {
-		return res, err
-	}
-
-	power, err := c.conn.CurrentPower()
-	if err != nil {
-		return res, err
-	}
-
-	// static mode || standby power mode condition
-	if on && (c.standbypower < 0 || power > c.standbypower) {
-		res = api.StatusC
-	}
-
-	return res, nil
-}
-
-var _ api.Meter = (*CCU)(nil)
-
-// CurrentPower implements the api.Meter interface
-func (c *CCU) CurrentPower() (float64, error) {
-	var power float64
-
-	// set fix static power in static mode
-	if c.standbypower < 0 {
-		on, err := c.Enabled()
-		if on {
-			power = -c.standbypower
-		}
-		return power, err
-	}
-
-	// ignore power in standby mode
-	power, err := c.conn.CurrentPower()
-	if power <= c.standbypower {
-		power = 0
-	}
-
-	return power, err
 }
 
 var _ api.MeterEnergy = (*CCU)(nil)

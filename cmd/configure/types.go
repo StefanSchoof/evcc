@@ -1,26 +1,14 @@
 package configure
 
+import (
+	"github.com/evcc-io/evcc/util/templates"
+)
+
 const (
 	DefaultConfigFilename string = "evcc.yaml"
 )
 
 type UsageChoice string
-
-func (u UsageChoice) String() string {
-	return string(u)
-}
-
-type DeviceClass string
-
-func (c DeviceClass) String() string {
-	return string(c)
-}
-
-const (
-	DeviceClassCharger DeviceClass = "charger"
-	DeviceClassMeter   DeviceClass = "meter"
-	DeviceClassVehicle DeviceClass = "vehicle"
-)
 
 type DeviceCategory string
 
@@ -49,40 +37,40 @@ const (
 
 type DeviceCategoryData struct {
 	title, article, additional string
-	class                      DeviceClass
+	class                      templates.Class
 	categoryFilter             DeviceCategory
 	defaultName                string
 }
 
 var DeviceCategories = map[DeviceCategory]DeviceCategoryData{
 	DeviceCategoryCharger: {
-		class:       DeviceClassCharger,
+		class:       templates.Charger,
 		defaultName: defaultNameCharger,
 	},
 	DeviceCategoryGuidedSetup: {
-		class: DeviceClassMeter,
+		class: templates.Meter,
 	},
 	DeviceCategoryGridMeter: {
-		class:          DeviceClassMeter,
+		class:          templates.Meter,
 		categoryFilter: DeviceCategoryGridMeter,
 		defaultName:    defaultNameGridMeter,
 	},
 	DeviceCategoryPVMeter: {
-		class:          DeviceClassMeter,
+		class:          templates.Meter,
 		categoryFilter: DeviceCategoryPVMeter,
 		defaultName:    defaultNamePVMeter,
 	},
 	DeviceCategoryBatteryMeter: {
-		class:          DeviceClassMeter,
+		class:          templates.Meter,
 		categoryFilter: DeviceCategoryBatteryMeter,
 		defaultName:    defaultNameBatteryMeter,
 	},
 	DeviceCategoryVehicle: {
-		class:       DeviceClassVehicle,
+		class:       templates.Vehicle,
 		defaultName: defaultNameVehicle,
 	},
 	DeviceCategoryChargeMeter: {
-		class:          DeviceClassMeter,
+		class:          templates.Meter,
 		categoryFilter: DeviceCategoryChargeMeter,
 		defaultName:    defaultNameChargeMeter,
 	},

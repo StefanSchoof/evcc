@@ -1,131 +1,108 @@
 package ocpp
 
 import (
-	core "github.com/lorenzodonini/ocpp-go/ocpp1.6/core"
-	"github.com/lorenzodonini/ocpp-go/ocpp1.6/firmware"
-	"github.com/lorenzodonini/ocpp-go/ocpp1.6/remotetrigger"
+	"github.com/lorenzodonini/ocpp-go/ocpp1.6/core"
+	"github.com/lorenzodonini/ocpp-go/ocpp1.6/types"
 )
 
-func (cs *CS) OnAuthorize(chargePointId string, request *core.AuthorizeRequest) (*core.AuthorizeConfirmation, error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
+// cp actions
+
+func (cs *CS) OnAuthorize(id string, request *core.AuthorizeRequest) (*core.AuthorizeConfirmation, error) {
+	// no cp handler
+
+	res := &core.AuthorizeConfirmation{
+		IdTagInfo: &types.IdTagInfo{
+			Status: types.AuthorizationStatusAccepted,
+		},
 	}
 
-	return cp.Authorize(request)
+	return res, nil
 }
 
-func (cs *CS) OnBootNotification(chargePointId string, request *core.BootNotificationRequest) (*core.BootNotificationConfirmation, error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
+func (cs *CS) OnBootNotification(id string, request *core.BootNotificationRequest) (*core.BootNotificationConfirmation, error) {
+	if cp, err := cs.ChargepointByID(id); err == nil {
+		return cp.OnBootNotification(request)
 	}
 
-	return cp.BootNotification(request)
+	res := &core.BootNotificationConfirmation{
+		CurrentTime: types.Now(),
+		Interval:    int(Timeout.Seconds()),
+		Status:      core.RegistrationStatusPending, // not accepted during startup
+	}
+
+	return res, nil
 }
 
-func (cs *CS) OnDataTransfer(chargePointId string, request *core.DataTransferRequest) (*core.DataTransferConfirmation, error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
+func (cs *CS) OnDataTransfer(id string, request *core.DataTransferRequest) (*core.DataTransferConfirmation, error) {
+	// no cp handler
+
+	res := &core.DataTransferConfirmation{
+		Status: core.DataTransferStatusAccepted,
 	}
 
-	return cp.DataTransfer(request)
+	return res, nil
 }
 
-func (cs *CS) OnHeartbeat(chargePointId string, request *core.HeartbeatRequest) (*core.HeartbeatConfirmation, error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
+func (cs *CS) OnHeartbeat(id string, request *core.HeartbeatRequest) (*core.HeartbeatConfirmation, error) {
+	// no cp handler
+
+	res := &core.HeartbeatConfirmation{
+		CurrentTime: types.Now(),
 	}
 
-	return cp.Heartbeat(request)
+	return res, nil
 }
 
-func (cs *CS) TriggerMeterValueRequest(cp *CP) {
-	callback := func(request *remotetrigger.TriggerMessageConfirmation, err error) {
-		cs.log.TRACE.Printf("TriggerMessageRequest %T: %+v", request, request)
+func (cs *CS) OnMeterValues(id string, request *core.MeterValuesRequest) (*core.MeterValuesConfirmation, error) {
+	if cp, err := cs.ChargepointByID(id); err == nil {
+		return cp.OnMeterValues(request)
 	}
 
-	if err := cs.cs.TriggerMessage(cp.id, callback, core.MeterValuesFeatureName); err != nil {
-		cs.log.DEBUG.Printf("failed sending TriggerMessageRequest: %s", err)
-	}
+	return new(core.MeterValuesConfirmation), nil
 }
 
-func (cs *CS) OnMeterValues(chargePointId string, request *core.MeterValuesRequest) (*core.MeterValuesConfirmation, error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
+func (cs *CS) OnStatusNotification(id string, request *core.StatusNotificationRequest) (*core.StatusNotificationConfirmation, error) {
+	if cp, err := cs.ChargepointByID(id); err == nil {
+		return cp.OnStatusNotification(request)
 	}
 
-	conf, err := cp.MeterValues(request)
-	// if request != nil {
-	// 	cs.log.DEBUG.Printf("%s < %s", request.MeterValue[0].Timestamp, time.Now().Add(-9*time.Second))
-	// 	if request.MeterValue[0].Timestamp.Before(time.Now().Add(-9 * time.Second)) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
 
-	// 		go func() {
-	// 			cs.log.DEBUG.Printf("send extra meter value request to catch up")
-	// 			time.Sleep(3 * time.Second)
-	// 			cs.TriggerMeterValueRequest(cp)
-	// 		}()
-	// 	}
-	// }
+	// cache status for future cp connection
+	if reg, ok := cs.regs[id]; ok {
+		reg.mu.Lock()
+		reg.status = request
+		reg.mu.Unlock()
+	}
 
-	return conf, err
+	return new(core.StatusNotificationConfirmation), nil
 }
 
-func (cs *CS) OnStatusNotification(chargePointId string, request *core.StatusNotificationRequest) (*core.StatusNotificationConfirmation, error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
+func (cs *CS) OnStartTransaction(id string, request *core.StartTransactionRequest) (*core.StartTransactionConfirmation, error) {
+	if cp, err := cs.ChargepointByID(id); err == nil {
+		return cp.OnStartTransaction(request)
 	}
 
-	return cp.StatusNotification(request)
+	res := &core.StartTransactionConfirmation{
+		IdTagInfo: &types.IdTagInfo{
+			Status: types.AuthorizationStatusAccepted,
+		},
+	}
+
+	return res, nil
 }
 
-func (cs *CS) OnStartTransaction(chargePointId string, request *core.StartTransactionRequest) (*core.StartTransactionConfirmation, error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
+func (cs *CS) OnStopTransaction(id string, request *core.StopTransactionRequest) (*core.StopTransactionConfirmation, error) {
+	if cp, err := cs.ChargepointByID(id); err == nil {
+		cp.OnStopTransaction(request)
 	}
 
-	return cp.StartTransaction(request)
-}
-
-func (cs *CS) OnStopTransaction(chargePointId string, request *core.StopTransactionRequest) (*core.StopTransactionConfirmation, error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
+	res := &core.StopTransactionConfirmation{
+		IdTagInfo: &types.IdTagInfo{
+			Status: types.AuthorizationStatusAccepted, // accept old pending stop message during startup
+		},
 	}
 
-	return cp.StopTransaction(request)
-}
-
-func (cs *CS) OnDiagnosticsStatusNotification(chargePointId string, request *firmware.DiagnosticsStatusNotificationRequest) (confirmation *firmware.DiagnosticsStatusNotificationConfirmation, err error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
-	}
-
-	return cp.DiagnosticStatusNotification(request)
-}
-
-func (cs *CS) OnFirmwareStatusNotification(chargePointId string, request *firmware.FirmwareStatusNotificationRequest) (confirmation *firmware.FirmwareStatusNotificationConfirmation, err error) {
-	cp, err := cs.chargepointByID(chargePointId)
-	if err != nil {
-		return nil, err
-	}
-
-	return cp.FirmwareStatusNotification(request)
-
-}
-
-func (cs *CS) TriggerResetRequest(cp *CP, resetType core.ResetType) {
-	callback := func(request *core.ResetConfirmation, err error) {
-		cs.log.TRACE.Printf("TriggerResetRequest %T: %+v", request, request)
-	}
-
-	if err := cs.cs.Reset(cp.id, callback, resetType); err != nil {
-		cs.log.DEBUG.Printf("failed sending TriggerResetRequest: %s", err)
-	}
+	return res, nil
 }

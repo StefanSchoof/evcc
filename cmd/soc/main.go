@@ -72,12 +72,17 @@ func main() {
 
 	switch action {
 	case "wakeup":
-		vv, ok := v.(api.VehicleChargeController)
-		if !ok {
+		switch vv := v.(type) {
+		case api.Resurrector:
+			if err := vv.WakeUp(); err != nil {
+				log.Fatal(err)
+			}
+		case api.ChargeController:
+			if err := vv.ChargeEnable(true); err != nil {
+				log.Fatal(err)
+			}
+		default:
 			log.Fatal("not supported:", action)
-		}
-		if err := vv.StartCharge(); err != nil {
-			log.Fatal(err)
 		}
 
 	case "soc":
@@ -86,7 +91,7 @@ func main() {
 
 		start := time.Now()
 		for err = api.ErrMustRetry; err != nil && matchesError(err, api.ErrMustRetry); {
-			if soc, err = v.SoC(); err != nil {
+			if soc, err = v.Soc(); err != nil {
 				if time.Since(start) > time.Minute {
 					err = os.ErrDeadlineExceeded
 				} else {

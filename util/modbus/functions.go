@@ -3,28 +3,19 @@ package modbus
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 )
 
-// ReadingName formats MBMD reading names
-func ReadingName(val string) string {
-	if len(val) > 0 {
-		val = strings.ToUpper(val[:1]) + val[1:]
-	}
-	return val
-}
-
-func RTUFloat64ToFloat64(b []byte) float64 {
-	bits := binary.BigEndian.Uint64(b)
-	return math.Float64frombits(bits)
-}
-
 // decodeMask converts a bit mask in decimal or hex format to uint64
 func decodeMask(mask string) (uint64, error) {
 	mask = strings.ToLower(mask)
+
+	if mask == "" {
+		return 0, errors.New("mask is required")
+	}
 
 	if strings.HasPrefix(mask, "0x") {
 		if len(mask) < 3 {
@@ -47,12 +38,21 @@ func decodeMask(mask string) (uint64, error) {
 	return strconv.ParseUint(mask, 10, 64)
 }
 
+// decodeBool8 converts a masked uint1 to a bool
+func decodeBool8(b []byte) float64 {
+	u := b[0]
+	if u > 0 {
+		return 1
+	}
+	return 0
+}
+
 // decodeBool16 converts a masked uint16 to a bool
 func decodeBool16(mask uint64) func(b []byte) float64 {
 	return func(b []byte) float64 {
 		u := binary.BigEndian.Uint16(b)
 		if mask > 0 {
-			u = u & uint16(mask)
+			u &= uint16(mask)
 		}
 		if u > 0 {
 			return 1
@@ -61,28 +61,37 @@ func decodeBool16(mask uint64) func(b []byte) float64 {
 	}
 }
 
-func decodeNaN16(nan uint16, f func(b []byte) float64) func(b []byte) float64 {
+func decodeNaN16(f func(b []byte) float64, nan ...uint16) func(b []byte) float64 {
 	return func(b []byte) float64 {
-		if binary.BigEndian.Uint16(b) == nan {
-			return 0
+		u := binary.BigEndian.Uint16(b)
+		for _, nan := range nan {
+			if u == nan {
+				return 0
+			}
 		}
 		return f(b)
 	}
 }
 
-func decodeNaN32(nan uint32, f func(b []byte) float64) func(b []byte) float64 {
+func decodeNaN32(f func(b []byte) float64, nan ...uint32) func(b []byte) float64 {
 	return func(b []byte) float64 {
-		if binary.BigEndian.Uint32(b) == nan {
-			return 0
+		u := binary.BigEndian.Uint32(b)
+		for _, nan := range nan {
+			if u == nan {
+				return 0
+			}
 		}
 		return f(b)
 	}
 }
 
-func decodeNaN64(nan uint64, f func(b []byte) float64) func(b []byte) float64 {
+func decodeNaN64(f func(b []byte) float64, nan ...uint64) func(b []byte) float64 {
 	return func(b []byte) float64 {
-		if binary.BigEndian.Uint64(b) == nan {
-			return 0
+		u := binary.BigEndian.Uint64(b)
+		for _, nan := range nan {
+			if u == nan {
+				return 0
+			}
 		}
 		return f(b)
 	}

@@ -1,16 +1,12 @@
 package cmd
 
 import (
-	"crypto/x509/pkix"
 	"os"
 	"text/template"
 
 	"github.com/Masterminds/sprig/v3"
-	certhelper "github.com/evcc-io/eebus/cert"
-	"github.com/evcc-io/evcc/server"
-	"github.com/evcc-io/evcc/util"
+	"github.com/evcc-io/evcc/server/eebus"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // teslaCmd represents the vehicle command
@@ -36,25 +32,17 @@ eebus:
 `
 
 func generateEEBUSCert() {
-	details := server.EEBUSDetails
-
-	subject := pkix.Name{
-		CommonName:   details.DeviceCode,
-		Country:      []string{"DE"},
-		Organization: []string{details.BrandName},
-	}
-
-	cert, err := certhelper.CreateCertificate(true, subject)
+	cert, err := eebus.CreateCertificate()
 	if err != nil {
-		log.FATAL.Fatal("could not create certificate")
+		log.FATAL.Fatal("could not create certificate", err)
 	}
 
-	pubKey, privKey, err := certhelper.GetX509KeyPair(cert)
+	pubKey, privKey, err := eebus.GetX509KeyPair(cert)
 	if err != nil {
-		log.FATAL.Fatal("could not process generated certificate")
+		log.FATAL.Fatal("could not process generated certificate", err)
 	}
 
-	t := template.Must(template.New("out").Funcs(template.FuncMap(sprig.FuncMap())).Parse(tmpl))
+	t := template.Must(template.New("out").Funcs(sprig.FuncMap()).Parse(tmpl))
 	if err := t.Execute(os.Stdout, map[string]interface{}{
 		"public":  pubKey,
 		"private": privKey,
@@ -64,8 +52,5 @@ func generateEEBUSCert() {
 }
 
 func runEEBUSCert(cmd *cobra.Command, args []string) {
-	util.LogLevel(viper.GetString("log"), viper.GetStringMapString("levels"))
-	log.INFO.Printf("evcc %s", server.FormattedVersion())
-
 	generateEEBUSCert()
 }

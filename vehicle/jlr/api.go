@@ -32,11 +32,10 @@ func NewAPI(log *util.Logger, device string, ts oauth2.TokenSource) *API {
 		Decorator: func(req *http.Request) error {
 			token, err := ts.Token()
 			if err == nil {
-				for k, v := range map[string]string{
-					"Authorization":           fmt.Sprintf("Bearer %s", token.AccessToken),
-					"X-Device-Id":             device,
+				for k, v := range Headers(device, map[string]string{
+					"Authorization":           "Bearer " + token.AccessToken,
 					"x-telematicsprogramtype": "jlrpy",
-				} {
+				}) {
 					req.Header.Set(k, v)
 				}
 			}
@@ -117,7 +116,8 @@ func (v *API) AuthenticateVinService(vin, user, service string) (PinResponse, er
 	pin := vin[len(vin)-4:]
 	data := map[string]string{
 		"serviceName": service,
-		"pin":         pin}
+		"pin":         pin,
+	}
 
 	uri := fmt.Sprintf("%s/vehicles/%s/users/%s/authenticate", IF9_BASE_URL, vin, user)
 	req, err := request.New(http.MethodPost, uri, request.MarshalJSON(data), map[string]string{
