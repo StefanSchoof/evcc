@@ -1,8 +1,9 @@
 template: solis-hybrid
+covers: ["solis-hybrid-s"]
 products:
   - brand: Ginlong
     description:
-      generic: Solis Hybrid Inverter
+      generic: Solis Hybrid Inverter (RHI and S series)
 params:
   - name: usage
     choice: ["grid", "pv", "battery"]
@@ -13,6 +14,7 @@ params:
     id: 1
   - name: capacity
     advanced: true
+  - name: maxacpower
 render: |
   type: custom
   {{- if eq .usage "grid" }}
@@ -92,6 +94,7 @@ render: |
       address: 33029 # Total energy generation
       type: input
       decode: uint32
+  maxacpower: {{ .maxacpower }} # W
   {{- end }}
   {{- if eq .usage "battery" }}
   power:
@@ -102,7 +105,7 @@ render: |
       register:
         type: input
         address: 33149 # Battery power
-        decode: uint32
+        decode: int32
     - source: calc
       add:
       - source: modbus
@@ -128,7 +131,5 @@ render: |
       address: 33139 # Battery capacity SOC
       type: input
       decode: uint16
-  {{- if .capacity }}
   capacity: {{ .capacity }} # kWh
-  {{- end }}
   {{- end }}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/xml"
 	"errors"
-	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -86,23 +85,16 @@ func NewEntsoeFromConfig(other map[string]interface{}) (api.Tariff, error) {
 func (t *Entsoe) run(done chan error) {
 	var once sync.Once
 
-	bo := newBackoff()
-
 	// Data updated by ESO every half hour, but we only need data every hour to stay current.
-	for ; true; <-time.Tick(time.Hour) {
+	tick := time.NewTicker(time.Hour)
+	for ; true; <-tick.C {
 		var tr entsoe.PublicationMarketDocument
 
 		if err := backoff.Retry(func() error {
 			// Request the next 24 hours of data.
 			data, err := t.DoBody(entsoe.DayAheadPricesRequest(t.domain, time.Hour*24))
-
-			// Consider whether errors.As would be more appropriate if this needs to start dealing with wrapped errors.
-			if se, ok := err.(request.StatusError); ok {
-				if se.HasStatus(http.StatusBadRequest) {
-					return backoff.Permanent(se)
-				}
-
-				return se
+			if err != nil {
+				return backoffPermanentError(err)
 			}
 
 			var doc entsoe.Document
@@ -133,7 +125,7 @@ func (t *Entsoe) run(done chan error) {
 			default:
 				return backoff.Permanent(errors.New("invalid document name: " + doc.XMLName.Local))
 			}
-		}, bo); err != nil {
+		}, bo()); err != nil {
 			once.Do(func() { done <- err })
 
 			t.log.ERROR.Println(err)
@@ -163,9 +155,8 @@ func (t *Entsoe) run(done chan error) {
 			}
 			data = append(data, ar)
 		}
-		data.Sort()
 
-		t.data.Set(data)
+		mergeRates(t.data, data)
 		once.Do(func() { close(done) })
 	}
 }

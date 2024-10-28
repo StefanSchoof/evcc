@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"text/tabwriter"
@@ -24,12 +25,12 @@ func init() {
 
 func runTariff(cmd *cobra.Command, args []string) {
 	// load config
-	if err := loadConfigFile(&conf); err != nil {
+	if err := loadConfigFile(&conf, !cmd.Flag(flagIgnoreDatabase).Changed); err != nil {
 		fatal(err)
 	}
 
 	// setup environment
-	if err := configureEnvironment(cmd, conf); err != nil {
+	if err := configureEnvironment(cmd, &conf); err != nil {
 		fatal(err)
 	}
 
@@ -52,7 +53,7 @@ func runTariff(cmd *cobra.Command, args []string) {
 			fmt.Println(key + ":")
 		}
 
-		tf, err := tariff.NewFromConfig(cc.Type, cc.Other)
+		tf, err := tariff.NewFromConfig(context.TODO(), cc.Type, cc.Other)
 		if err != nil {
 			fatal(err)
 		}

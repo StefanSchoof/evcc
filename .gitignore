@@ -1,4 +1,4 @@
-__debug_bin
+__debug_bin*
 .vscode
 .cache
 .DS_store
@@ -6,10 +6,12 @@ __debug_bin
 *.py
 *.log
 *.json
+!.devcontainer/devcontainer.json
 *.yaml
 !templates/**/*.yaml
 !templates/**/*-schema.json
 !util/templates/**/*.yaml
+!assets/js/**/*.yaml
 !package*.json
 !evcc.dist.yaml
 !tests/**/*.evcc.yaml
@@ -38,3 +40,5 @@ asset-stats.html
 /test-results/
 /playwright-report/
 /playwright/.cache/
+.gitpod.yml
+/evcc.db

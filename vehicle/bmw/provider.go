@@ -96,20 +96,28 @@ func (v *Provider) Odometer() (float64, error) {
 	return float64(res.State.CurrentMileage), nil
 }
 
+var _ api.SocLimiter = (*Provider)(nil)
+
+// GetLimitSoc implements the api.SocLimiter interface
+func (v *Provider) GetLimitSoc() (int64, error) {
+	res, err := v.statusG()
+	if err != nil {
+		return 0, err
+	}
+
+	return res.State.ElectricChargingState.ChargingTarget, nil
+}
+
 var _ api.Resurrector = (*Provider)(nil)
 
 func (v *Provider) WakeUp() error {
 	return v.actionS(DOOR_LOCK)
 }
 
-var _ api.VehicleChargeController = (*Provider)(nil)
+var _ api.ChargeController = (*Provider)(nil)
 
-// StartCharge implements the api.VehicleChargeController interface
-func (v *Provider) StartCharge() error {
-	return v.actionS(CHARGE_START)
-}
-
-// StopCharge implements the api.VehicleChargeController interface
-func (v *Provider) StopCharge() error {
-	return v.actionS(CHARGE_STOP)
+// ChargeEnable implements the api.ChargeController interface
+func (v *Provider) ChargeEnable(enable bool) error {
+	action := map[bool]string{true: CHARGE_START, false: CHARGE_STOP}
+	return v.actionS(action[enable])
 }

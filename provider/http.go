@@ -1,9 +1,11 @@
 package provider
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +33,7 @@ type HTTP struct {
 }
 
 func init() {
-	registry.Add("http", NewHTTPProviderFromConfig)
+	registry.AddCtx("http", NewHTTPProviderFromConfig)
 }
 
 // Auth is the authorization config
@@ -40,7 +42,7 @@ type Auth struct {
 }
 
 // NewHTTPProviderFromConfig creates a HTTP provider
-func NewHTTPProviderFromConfig(other map[string]interface{}) (Provider, error) {
+func NewHTTPProviderFromConfig(ctx context.Context, other map[string]interface{}) (Provider, error) {
 	cc := struct {
 		URI, Method       string
 		Headers           map[string]string
@@ -53,6 +55,7 @@ func NewHTTPProviderFromConfig(other map[string]interface{}) (Provider, error) {
 		Cache             time.Duration
 	}{
 		Headers: make(map[string]string),
+		Method:  http.MethodGet,
 		Scale:   1,
 		Timeout: request.Timeout,
 	}
@@ -61,10 +64,10 @@ func NewHTTPProviderFromConfig(other map[string]interface{}) (Provider, error) {
 		return nil, err
 	}
 
-	log := util.NewLogger("http")
+	log := contextLogger(ctx, util.NewLogger("http"))
 	http := NewHTTP(
 		log,
-		cc.Method,
+		strings.ToUpper(cc.Method),
 		cc.URI,
 		cc.Insecure,
 		cc.Scale,
@@ -91,14 +94,9 @@ func NewHTTPProviderFromConfig(other map[string]interface{}) (Provider, error) {
 
 // NewHTTP create HTTP provider
 func NewHTTP(log *util.Logger, method, uri string, insecure bool, scale float64, cache time.Duration) *HTTP {
-	url := util.DefaultScheme(uri, "http")
-	if strings.HasPrefix(url, "http") && !strings.HasPrefix(uri, "http") {
-		log.WARN.Printf("missing scheme for %s, assuming http", uri)
-	}
-
 	p := &HTTP{
 		Helper: request.NewHelper(log),
-		url:    url,
+		url:    uri,
 		method: method,
 		scale:  scale,
 		cache:  cache,
@@ -155,20 +153,27 @@ func (p *HTTP) WithAuth(typ, user, password string) (*HTTP, error) {
 }
 
 // request executes the configured request or returns the cached value
-func (p *HTTP) request(url string, body ...string) ([]byte, error) {
+func (p *HTTP) request(url string, body string) ([]byte, error) {
 	if time.Since(p.updated) >= p.cache {
 		var b io.Reader
-		if len(body) == 1 {
-			b = strings.NewReader(body[0])
+		if p.method != http.MethodGet {
+			b = strings.NewReader(body)
 		}
 
+		url := util.DefaultScheme(url, "http")
+
 		// empty method becomes GET
-		req, err := request.New(strings.ToUpper(p.method), url, b, p.headers)
+		req, err := request.New(p.method, url, b, p.headers)
 		if err != nil {
 			return []byte{}, err
 		}
 
 		p.val, p.err = p.DoBody(req)
+		if p.err != nil {
+			if err := knownErrors(p.val); err != nil {
+				p.err = err
+			}
+		}
 		p.updated = time.Now()
 	}
 
@@ -180,7 +185,12 @@ var _ StringProvider = (*HTTP)(nil)
 // StringGetter sends string request
 func (p *HTTP) StringGetter() (func() (string, error), error) {
 	return func() (string, error) {
-		b, err := p.request(p.url, p.body)
+		url, err := setFormattedValue(p.url, "", "")
+		if err != nil {
+			return "", err
+		}
+
+		b, err := p.request(url, p.body)
 
 		if err == nil && p.pipeline != nil {
 			b, err = p.pipeline.Process(b)

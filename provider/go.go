@@ -1,6 +1,8 @@
 package provider
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -18,11 +20,11 @@ type Go struct {
 }
 
 func init() {
-	registry.Add("go", NewGoProviderFromConfig)
+	registry.AddCtx("go", NewGoProviderFromConfig)
 }
 
 // NewGoProviderFromConfig creates a Go provider
-func NewGoProviderFromConfig(other map[string]interface{}) (Provider, error) {
+func NewGoProviderFromConfig(ctx context.Context, other map[string]interface{}) (Provider, error) {
 	var cc struct {
 		VM     string
 		Script string
@@ -39,12 +41,12 @@ func NewGoProviderFromConfig(other map[string]interface{}) (Provider, error) {
 		return nil, err
 	}
 
-	in, err := configureInputs(cc.In)
+	in, err := configureInputs(ctx, cc.In)
 	if err != nil {
 		return nil, err
 	}
 
-	out, err := configureOutputs(cc.Out)
+	out, err := configureOutputs(ctx, cc.Out)
 	if err != nil {
 		return nil, err
 	}
@@ -144,6 +146,10 @@ func (p *Go) handleGetter() (any, error) {
 }
 
 func (p *Go) handleSetter(param string, val any) error {
+	if err := transformInputs(p.in, p.setParam); err != nil {
+		return err
+	}
+
 	if err := p.setParam(param, val); err != nil {
 		return err
 	}
@@ -166,6 +172,10 @@ func (p *Go) evaluate() (res any, err error) {
 	v, err := p.vm.Eval(p.script)
 	if err != nil {
 		return nil, err
+	}
+
+	if !v.IsValid() {
+		return nil, errors.New("missing result")
 	}
 
 	if (v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface) && v.IsNil() {

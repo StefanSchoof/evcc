@@ -2,11 +2,13 @@
 	<Teleport to="body">
 		<div
 			:id="`loadpointSettingsModal_${id}`"
-			class="modal fade text-dark"
+			ref="modal"
+			class="modal fade text-dark modal-xl"
 			data-bs-backdrop="true"
 			tabindex="-1"
 			role="dialog"
 			aria-hidden="true"
+			data-testid="loadpoint-settings-modal"
 		>
 			<div class="modal-dialog modal-dialog-centered" role="document">
 				<div class="modal-content">
@@ -23,12 +25,23 @@
 					</div>
 					<div class="modal-body">
 						<div class="container">
-							<h4 class="d-flex align-items-center mb-3 mt-4 text-evcc">
+							<SmartCostLimit
+								v-if="isModalVisible && smartCostAvailable"
+								v-bind="smartCostLimitProps"
+								class="mt-2"
+							/>
+							<LoadpointSettingsBatteryBoost
+								v-if="batteryBoostAvailable"
+								v-bind="batteryBoostProps"
+								class="mt-2"
+								@batteryboost-updated="changeBatteryBoost"
+							/>
+							<h6>
 								{{ $t("main.loadpointSettings.currents") }}
-							</h4>
+							</h6>
 							<div v-if="phasesOptions.length" class="mb-3 row">
 								<label
-									:for="formId('phases_0')"
+									:for="formId(`phases_${phasesOptions[0]}`)"
 									class="col-sm-4 col-form-label pt-0"
 								>
 									{{ $t("main.loadpointSettings.phasesConfigured.label") }}
@@ -142,7 +155,11 @@
 </template>
 
 <script>
+import collector from "../mixins/collector";
 import formatter from "../mixins/formatter";
+import SmartCostLimit from "./SmartCostLimit.vue";
+import smartCostAvailable from "../utils/smartCostAvailable";
+import LoadpointSettingsBatteryBoost from "./LoadpointSettingsBatteryBoost.vue";
 
 const V = 230;
 
@@ -161,28 +178,43 @@ const insertSorted = (arr, num) => {
 
 export default {
 	name: "LoadpointSettingsModal",
-	mixins: [formatter],
+	components: { SmartCostLimit, LoadpointSettingsBatteryBoost },
+	mixins: [formatter, collector],
 	props: {
 		id: [String, Number],
 		phasesConfigured: Number,
 		phasesActive: Number,
 		chargerPhases1p3p: Boolean,
 		chargerPhysicalPhases: Number,
+		batteryBoost: Boolean,
+		batteryBoostAvailable: Boolean,
+		mode: String,
 		minSoc: Number,
 		maxCurrent: Number,
 		minCurrent: Number,
 		title: String,
+		smartCostLimit: Number,
+		smartCostType: String,
+		tariffGrid: Number,
+		currency: String,
+		multipleLoadpoints: Boolean,
 	},
-	emits: ["phasesconfigured-updated", "maxcurrent-updated", "mincurrent-updated"],
-	data: function () {
+	emits: [
+		"phasesconfigured-updated",
+		"maxcurrent-updated",
+		"mincurrent-updated",
+		"batteryboost-updated",
+	],
+	data() {
 		return {
 			selectedMaxCurrent: this.maxCurrent,
 			selectedMinCurrent: this.minCurrent,
 			selectedPhases: this.phasesConfigured,
+			isModalVisible: false,
 		};
 	},
 	computed: {
-		phasesOptions: function () {
+		phasesOptions() {
 			if (this.chargerPhysicalPhases == 1) {
 				// known fixed phase configuration, no settings required
 				return [];
@@ -194,7 +226,10 @@ export default {
 			// 1p or 3p possible
 			return [PHASES_3, PHASES_1];
 		},
-		maxPower: function () {
+		batteryBoostProps() {
+			return this.collectProps(LoadpointSettingsBatteryBoost);
+		},
+		maxPower() {
 			if (this.chargerPhases1p3p) {
 				if (this.phasesConfigured === PHASES_AUTO) {
 					return this.maxPowerPhases(3);
@@ -203,9 +238,9 @@ export default {
 					return this.maxPowerPhases(this.phasesConfigured);
 				}
 			}
-			return this.fmtKw(this.maxCurrent * V * this.phasesActive);
+			return this.fmtW(this.maxCurrent * V * this.phasesActive);
 		},
-		minPower: function () {
+		minPower() {
 			if (this.chargerPhases1p3p) {
 				if (this.phasesConfigured === PHASES_AUTO) {
 					return this.minPowerPhases(1);
@@ -214,60 +249,86 @@ export default {
 					return this.minPowerPhases(this.phasesConfigured);
 				}
 			}
-			return this.fmtKw(this.minCurrent * V * this.phasesActive);
+			return this.fmtW(this.minCurrent * V * this.phasesActive);
 		},
-		minCurrentOptions: function () {
+		minCurrentOptions() {
 			const opt1 = [...range(Math.floor(this.maxCurrent), 1), 0.5, 0.25, 0.125];
 			// ensure that current value is always included
 			const opt2 = insertSorted(opt1, this.minCurrent);
 			return opt2.map((value) => this.currentOption(value, value === 6));
 		},
-		maxCurrentOptions: function () {
+		maxCurrentOptions() {
 			const opt1 = range(32, Math.ceil(this.minCurrent));
 			// ensure that current value is always included
 			const opt2 = insertSorted(opt1, this.maxCurrent);
 			return opt2.map((value) => this.currentOption(value, value === 16));
 		},
+		smartCostLimitProps() {
+			return this.collectProps(SmartCostLimit);
+		},
+		loadpointId() {
+			return this.id;
+		},
+		smartCostAvailable() {
+			return smartCostAvailable(this.smartCostType);
+		},
 	},
 	watch: {
-		maxCurrent: function (value) {
+		maxCurrent(value) {
 			this.selectedMaxCurrent = value;
 		},
-		minCurrent: function (value) {
+		minCurrent(value) {
 			this.selectedMinCurrent = value;
 		},
-		phasesConfigured: function (value) {
+		phasesConfigured(value) {
 			this.selectedPhases = value;
 		},
-		minSoc: function (value) {
+		minSoc(value) {
 			this.selectedMinSoc = value;
 		},
 	},
+	mounted() {
+		this.$refs.modal.addEventListener("show.bs.modal", this.modalVisible);
+		this.$refs.modal.addEventListener("hidden.bs.modal", this.modalInvisible);
+	},
+	unmounted() {
+		this.$refs.modal?.removeEventListener("show.bs.modal", this.modalVisible);
+		this.$refs.modal?.removeEventListener("hidden.bs.modal", this.modalInvisible);
+	},
 	methods: {
-		maxPowerPhases: function (phases) {
-			return this.fmtKw(this.maxCurrent * V * phases);
+		maxPowerPhases(phases) {
+			return this.fmtW(this.maxCurrent * V * phases);
 		},
-		minPowerPhases: function (phases) {
-			return this.fmtKw(this.minCurrent * V * phases);
+		minPowerPhases(phases) {
+			return this.fmtW(this.minCurrent * V * phases);
 		},
-		formId: function (name) {
+		formId(name) {
 			return `loadpoint_${this.id}_${name}`;
 		},
-		changeMaxCurrent: function () {
+		changeMaxCurrent() {
 			this.$emit("maxcurrent-updated", this.selectedMaxCurrent);
 		},
-		changeMinCurrent: function () {
+		changeMinCurrent() {
 			this.$emit("mincurrent-updated", this.selectedMinCurrent);
 		},
-		changePhasesConfigured: function () {
+		changePhasesConfigured() {
 			this.$emit("phasesconfigured-updated", this.selectedPhases);
 		},
-		currentOption: function (value, isDefault) {
+		currentOption(value, isDefault) {
 			let name = `${this.fmtNumber(value)} A`;
 			if (isDefault) {
 				name += ` (${this.$t("main.loadpointSettings.default")})`;
 			}
 			return { value, name };
+		},
+		modalVisible() {
+			this.isModalVisible = true;
+		},
+		modalInvisible() {
+			this.isModalVisible = false;
+		},
+		changeBatteryBoost(boost) {
+			this.$emit("batteryboost-updated", boost);
 		},
 	},
 };
@@ -280,5 +341,9 @@ export default {
 
 .container h4:first-child {
 	margin-top: 0 !important;
+}
+
+.custom-select-inline {
+	display: inline-block !important;
 }
 </style>

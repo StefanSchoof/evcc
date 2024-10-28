@@ -2,7 +2,6 @@ package tariff
 
 import (
 	"errors"
-	"net/http"
 	"slices"
 	"sync"
 	"time"
@@ -58,7 +57,6 @@ func NewNgesoFromConfig(other map[string]interface{}) (api.Tariff, error) {
 func (t *Ngeso) run(done chan error) {
 	var once sync.Once
 	client := request.NewHelper(t.log)
-	bo := newBackoff()
 
 	// Use national results by default.
 	var tReq ngeso.CarbonForecastRequest
@@ -75,27 +73,21 @@ func (t *Ngeso) run(done chan error) {
 	}
 
 	// Data updated by ESO every half hour, but we only need data every hour to stay current.
-	for ; true; <-time.Tick(time.Hour) {
-		var carbonResponse ngeso.CarbonForecastResponse
-		if err := backoff.Retry(func() error {
-			var err error
-			carbonResponse, err = tReq.DoRequest(client)
-
-			// Consider whether errors.As would be more appropriate if this needs to start dealing with wrapped errors.
-			if se, ok := err.(request.StatusError); ok && se.HasStatus(http.StatusBadRequest) {
-				// Catch cases where we're sending completely incorrect data (usually the result of a bad region).
-				return backoff.Permanent(se)
-			}
-			return err
-		}, bo); err != nil {
+	tick := time.NewTicker(time.Hour)
+	for ; true; <-tick.C {
+		res, err := backoff.RetryWithData(func() (ngeso.CarbonForecastResponse, error) {
+			res, err := tReq.DoRequest(client)
+			return res, backoffPermanentError(err)
+		}, bo())
+		if err != nil {
 			once.Do(func() { done <- err })
 
 			t.log.ERROR.Println(err)
 			continue
 		}
 
-		data := make(api.Rates, 0, len(carbonResponse.Results()))
-		for _, r := range carbonResponse.Results() {
+		data := make(api.Rates, 0, len(res.Results()))
+		for _, r := range res.Results() {
 			ar := api.Rate{
 				Start: r.ValidityStart.Time,
 				End:   r.ValidityEnd.Time,
@@ -104,9 +96,8 @@ func (t *Ngeso) run(done chan error) {
 			}
 			data = append(data, ar)
 		}
-		data.Sort()
 
-		t.data.Set(data)
+		mergeRates(t.data, data)
 		once.Do(func() { close(done) })
 	}
 }

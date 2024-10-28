@@ -10,8 +10,10 @@ import (
 
 // Provider is an api.Vehicle implementation for Seat Cupra cars
 type Provider struct {
-	statusG func() (Status, error)
-	action  func(string, string) error
+	statusG   func() (Status, error)
+	positionG func() (Position, error)
+	milageG   func() (Mileage, error)
+	action    func(string, string) error
 }
 
 // NewProvider creates a vehicle api provider
@@ -19,6 +21,12 @@ func NewProvider(api *API, userID, vin string, cache time.Duration) *Provider {
 	impl := &Provider{
 		statusG: provider.Cached(func() (Status, error) {
 			return api.Status(userID, vin)
+		}, cache),
+		positionG: provider.Cached(func() (Position, error) {
+			return api.ParkingPosition(vin)
+		}, cache),
+		milageG: provider.Cached(func() (Mileage, error) {
+			return api.Mileage(vin)
 		}, cache),
 		action: func(action, cmd string) error {
 			return api.Action(vin, action, cmd)
@@ -32,7 +40,7 @@ var _ api.Battery = (*Provider)(nil)
 // Soc implements the api.Vehicle interface
 func (v *Provider) Soc() (float64, error) {
 	res, err := v.statusG()
-	return res.Engines.Primary.Level, err
+	return res.Engines.Primary.LevelPct, err
 }
 
 var _ api.ChargeState = (*Provider)(nil)
@@ -81,15 +89,23 @@ var _ api.VehicleRange = (*Provider)(nil)
 // Range implements the api.VehicleRange interface
 func (v *Provider) Range() (int64, error) {
 	res, err := v.statusG()
-	return int64(res.Engines.Primary.Range.Value), err
+	return int64(res.Engines.Primary.RangeKm), err
 }
 
 var _ api.VehicleOdometer = (*Provider)(nil)
 
 // Odometer implements the api.VehicleOdometer interface
 func (v *Provider) Odometer() (float64, error) {
-	res, err := v.statusG()
-	return res.Measurements.MileageKm, err
+	res, err := v.milageG()
+	return res.MileageKm, err
+}
+
+var _ api.VehiclePosition = (*Provider)(nil)
+
+// Position implements the api.VehiclePosition interface
+func (v *Provider) Position() (float64, float64, error) {
+	res, err := v.positionG()
+	return res.Lat, res.Lon, err
 }
 
 var _ api.VehicleClimater = (*Provider)(nil)
@@ -102,20 +118,16 @@ func (v *Provider) Climater() (bool, error) {
 
 var _ api.SocLimiter = (*Provider)(nil)
 
-// TargetSoc implements the api.SocLimiter interface
-func (v *Provider) TargetSoc() (float64, error) {
+// GetLimitSoc implements the api.SocLimiter interface
+func (v *Provider) GetLimitSoc() (int64, error) {
 	res, err := v.statusG()
-	return float64(res.Services.Charging.TargetPct), err
+	return int64(res.Services.Charging.TargetPct), err
 }
 
-var _ api.VehicleChargeController = (*Provider)(nil)
+var _ api.ChargeController = (*Provider)(nil)
 
-// StartCharge implements the api.VehicleChargeController interface
-func (v *Provider) StartCharge() error {
-	return v.action(ActionCharge, ActionChargeStart)
-}
-
-// StopCharge implements the api.VehicleChargeController interface
-func (v *Provider) StopCharge() error {
-	return v.action(ActionCharge, ActionChargeStop)
+// ChargeEnable implements the api.ChargeController interface
+func (v *Provider) ChargeEnable(enable bool) error {
+	action := map[bool]string{true: ActionChargeStart, false: ActionChargeStop}
+	return v.action(ActionCharge, action[enable])
 }

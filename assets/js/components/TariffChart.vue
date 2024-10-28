@@ -13,9 +13,10 @@
 				'cursor-pointer': slot.selectable,
 				faded: activeIndex !== null && activeIndex !== index,
 			}"
-			@touchstart="hoverSlot(index)"
+			@touchstart="startLongPress(index)"
+			@touchend="cancelLongPress"
+			@touchmove="cancelLongPress"
 			@mouseenter="hoverSlot(index)"
-			@touchend="hoverSlot(null)"
 			@mouseleave="hoverSlot(null)"
 			@mouseup="hoverSlot(null)"
 			@click="selectSlot(index)"
@@ -44,7 +45,12 @@ export default {
 	},
 	emits: ["slot-hovered", "slot-selected"],
 	data() {
-		return { activeIndex: null, startTime: new Date() };
+		return {
+			activeIndex: null,
+			startTime: new Date(),
+			longPressTimer: null,
+			isLongPress: false,
+		};
 	},
 	computed: {
 		priceInfo() {
@@ -83,6 +89,10 @@ export default {
 			this.$emit("slot-hovered", index);
 		},
 		selectSlot(index) {
+			if (this.isLongPress) {
+				this.isLongPress = false;
+				return;
+			}
 			if (this.slots[index]?.selectable) {
 				this.$emit("slot-selected", index);
 			}
@@ -90,10 +100,20 @@ export default {
 		priceStyle(price) {
 			const value = price === undefined ? this.avgPrice : price;
 			const height =
-				value !== undefined
+				value !== undefined && !isNaN(value)
 					? `${10 + (90 / this.priceInfo.range) * (value - this.priceInfo.min)}%`
-					: "100%";
+					: "75%";
 			return { height };
+		},
+		startLongPress(index) {
+			this.longPressTimer = setTimeout(() => {
+				this.isLongPress = true;
+				this.hoverSlot(index);
+			}, 300);
+		},
+		cancelLongPress() {
+			clearTimeout(this.longPressTimer);
+			this.hoverSlot(null);
 		},
 	},
 };
@@ -116,7 +136,9 @@ export default {
 	flex-direction: column;
 	position: relative;
 	opacity: 1;
-	transition: opacity var(--evcc-transition-fast) linear;
+	transition-property: opacity, background, color;
+	transition-duration: var(--evcc-transition-fast);
+	transition-timing-function: ease-in;
 }
 @media (max-width: 991px) {
 	.chart {
@@ -148,6 +170,7 @@ export default {
 	display: flex;
 	justify-content: center;
 	color: var(--bs-white);
+	transition: height var(--evcc-transition-fast) ease-in;
 }
 .slot-label {
 	color: var(--bs-gray-light);

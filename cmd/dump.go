@@ -45,16 +45,16 @@ func handle[T any](name string, h config.Handler[T]) config.Device[T] {
 
 func runDump(cmd *cobra.Command, args []string) {
 	// load config
-	err := loadConfigFile(&conf)
+	err := loadConfigFile(&conf, !cmd.Flag(flagIgnoreDatabase).Changed)
 
 	// setup environment
 	if err == nil {
-		err = configureEnvironment(cmd, conf)
+		err = configureEnvironment(cmd, &conf)
 	}
 
 	var site *core.Site
 	if err == nil {
-		site, err = configureSiteAndLoadpoints(conf)
+		site, err = configureSiteAndLoadpoints(&conf)
 	}
 
 	if *dumpConfig {
@@ -70,7 +70,7 @@ func runDump(cmd *cobra.Command, args []string) {
 
 		tmpl := template.Must(
 			template.New("dump").
-				Funcs(sprig.TxtFuncMap()).
+				Funcs(sprig.FuncMap()).
 				Parse(dumpTmpl))
 
 		out := new(bytes.Buffer)

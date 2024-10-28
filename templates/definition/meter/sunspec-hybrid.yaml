@@ -2,8 +2,8 @@ template: sunspec-hybrid
 covers: ["sunspec-hybrid-inverter"]
 products:
   - description:
-      de: Hybridwechselrichter
-      en: Hybrid Inverter
+      de: SunSpec Hybridwechselrichter
+      en: SunSpec Hybrid Inverter
 group: generic
 params:
   - name: usage
@@ -13,10 +13,11 @@ params:
     choice: ["tcpip", "rs485"]
   - name: capacity
     advanced: true
+  - name: maxacpower
 render: |
-  {{- if eq .usage "grid" }}
   type: custom
   # sunspec model 203 (int+sf)/ 213 (float) meter
+  {{- if eq .usage "grid" }}
   power:
     source: sunspec
     {{- include "modbus" . | indent 2 }}
@@ -29,6 +30,7 @@ render: |
     value: 
       - 203:TotWhImp
       - 213:TotWhImp
+    scale: 0.001
   currents:
     - source: sunspec
       {{- include "modbus" . | indent 4 }}
@@ -79,7 +81,6 @@ render: |
         - 213:WphC
   {{- end }}
   {{- if eq .usage "pv" }}
-  type: custom
   power:
     source: calc
     add:
@@ -100,9 +101,9 @@ render: |
         {{- include "modbus" . | indent 6 }}
         value: 160:2:DCWH # mppt 2
         scale: 0.001
+  maxacpower: {{ .maxacpower }} # W
   {{- end }}
   {{- if eq .usage "battery" }}
-  type: custom
   power:
     source: calc
     add:

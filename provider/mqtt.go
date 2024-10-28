@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"time"
 
 	"github.com/evcc-io/evcc/provider/mqtt"
@@ -21,11 +22,11 @@ type Mqtt struct {
 }
 
 func init() {
-	registry.Add("mqtt", NewMqttFromConfig)
+	registry.AddCtx("mqtt", NewMqttFromConfig)
 }
 
 // NewMqttFromConfig creates Mqtt provider
-func NewMqttFromConfig(other map[string]interface{}) (Provider, error) {
+func NewMqttFromConfig(ctx context.Context, other map[string]interface{}) (Provider, error) {
 	cc := struct {
 		mqtt.Config       `mapstructure:",squash"`
 		Topic, Payload    string // Payload only applies to setters
@@ -41,7 +42,7 @@ func NewMqttFromConfig(other map[string]interface{}) (Provider, error) {
 		return nil, err
 	}
 
-	log := util.NewLogger("mqtt")
+	log := contextLogger(ctx, util.NewLogger("mqtt"))
 
 	client, err := mqtt.RegisteredClientOrDefault(log, cc.Config)
 	if err != nil {
@@ -148,6 +149,20 @@ var _ SetIntProvider = (*Mqtt)(nil)
 // IntSetter publishes topic with parameter replaced by int value
 func (m *Mqtt) IntSetter(param string) (func(int64) error, error) {
 	return func(v int64) error {
+		payload, err := setFormattedValue(m.payload, param, v)
+		if err != nil {
+			return err
+		}
+
+		return m.client.Publish(m.topic, m.retained, payload)
+	}, nil
+}
+
+var _ SetFloatProvider = (*Mqtt)(nil)
+
+// FloatSetter publishes topic with parameter replaced by float value
+func (m *Mqtt) FloatSetter(param string) (func(float64) error, error) {
+	return func(v float64) error {
 		payload, err := setFormattedValue(m.payload, param, v)
 		if err != nil {
 			return err

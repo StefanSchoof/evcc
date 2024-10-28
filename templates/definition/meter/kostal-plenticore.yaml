@@ -13,9 +13,9 @@ linked:
 requirements:
   description:
     de: |
-      Nur ein System kann und darf auf den Wechselrichter zugreifen! Für die aktive Batteriesteuerung muss die externe Batteriesteuerung über Modbus mit dem Handwerkerzugang aktiviert sein.
+      Nur ein System kann und darf auf den Wechselrichter zugreifen! Für die aktive Batteriesteuerung muss die externe Batteriesteuerung über Modbus mit dem Handwerkerzugang aktiviert sein. Netzladen ist nicht verfügbar.
     en: |
-      Only a single system may access the inverter! For active battery control, the external battery control via Modbus must be activated using installer access.
+      Only a single system may access the inverter! For active battery control, the external battery control via Modbus must be activated using installer access. Grid charging is not available.
 params:
   - name: usage
     choice: ["pv", "battery"]
@@ -33,6 +33,7 @@ params:
     advanced: true
   - name: capacity
     advanced: true
+  - name: maxacpower
   # battery control
   - name: minsoc
     type: number
@@ -59,6 +60,12 @@ render: |
     - source: sunspec
       {{- include "modbus" . | indent 4 }}
       value: 160:3:DCW # string 3
+  energy:
+    source: sunspec
+    {{- include "modbus" . | indent 2 }}
+    value: 103:WH # total yield
+    scale: 0.001
+  maxacpower: {{ .maxacpower }} # W
   {{- end }}
   {{- if eq .usage "battery" }}
   type: custom

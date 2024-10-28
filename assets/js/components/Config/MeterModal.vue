@@ -43,7 +43,18 @@
 									v-model="templateName"
 									:disabled="!isNew"
 									class="form-select w-100"
+									@change="templateChanged"
 								>
+									<option
+										v-for="option in genericOptions"
+										:key="option.name"
+										:value="option.template"
+									>
+										{{ option.name }}
+									</option>
+									<option v-if="genericOptions.length" disabled>
+										──────────
+									</option>
 									<option
 										v-for="option in templateOptions"
 										:key="option.name"
@@ -54,6 +65,7 @@
 								</select>
 							</FormRow>
 							<p v-if="loadingTemplate">Loading ...</p>
+							<Markdown v-if="description" :markdown="description" class="my-4" />
 							<Modbus
 								v-if="modbus"
 								v-model:modbus="values.modbus"
@@ -69,26 +81,25 @@
 								:defaultPort="modbus.Port"
 								:capabilities="modbusCapabilities"
 							/>
-							<FormRow
-								v-for="param in templateParams"
+							<PropertyEntry
+								v-for="param in normalParams"
 								:id="`meterParam${param.Name}`"
 								:key="param.Name"
-								:optional="!param.Required"
-								:label="param.Description || `[${param.Name}]`"
-								:help="param.Description === param.Help ? undefined : param.Help"
-								:example="param.Example"
-							>
-								<PropertyField
-									:id="`meterParam${param.Name}`"
-									v-model="values[param.Name]"
-									:masked="param.Mask"
-									:property="param.Name"
-									:type="param.Type"
-									class="me-2"
-									:required="param.Required"
-									:validValues="param.ValidValues"
-								/>
-							</FormRow>
+								v-bind="param"
+								v-model="values[param.Name]"
+							/>
+
+							<PropertyCollapsible>
+								<template v-if="advancedParams.length" #advanced>
+									<PropertyEntry
+										v-for="param in advancedParams"
+										:id="`meterParam${param.Name}`"
+										:key="param.Name"
+										v-bind="param"
+										v-model="values[param.Name]"
+									/>
+								</template>
+							</PropertyCollapsible>
 
 							<TestResult
 								v-if="templateName"
@@ -147,12 +158,14 @@
 
 <script>
 import FormRow from "./FormRow.vue";
-import PropertyField from "./PropertyField.vue";
+import PropertyEntry from "./PropertyEntry.vue";
+import PropertyCollapsible from "./PropertyCollapsible.vue";
 import TestResult from "./TestResult.vue";
 import api from "../../api";
 import test from "./mixins/test";
 import AddDeviceButton from "./AddDeviceButton.vue";
 import Modbus from "./Modbus.vue";
+import Markdown from "./Markdown.vue";
 
 const initialValues = { type: "template" };
 
@@ -160,9 +173,19 @@ function sleep(ms) {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const CUSTOM_FIELDS = ["usage", "modbus"];
+
 export default {
 	name: "MeterModal",
-	components: { FormRow, PropertyField, Modbus, TestResult, AddDeviceButton },
+	components: {
+		FormRow,
+		PropertyEntry,
+		Modbus,
+		TestResult,
+		AddDeviceButton,
+		PropertyCollapsible,
+		Markdown,
+	},
 	mixins: [test],
 	props: {
 		id: Number,
@@ -198,21 +221,26 @@ export default {
 			return this.type || this.selectedType;
 		},
 		templateOptions() {
-			return this.products;
+			return this.products.filter((p) => p.group !== "generic");
+		},
+		genericOptions() {
+			return this.products.filter((p) => p.group === "generic");
 		},
 		templateParams() {
-			const params = this.template?.Params || [];
-			return (
-				params
-					// deprecated fields
-					.filter((p) => !p.Deprecated)
-					// remove usage option
-					.filter((p) => p.Name !== "usage")
-					// remove modbus, handles separately
-					.filter((p) => p.Name !== "modbus")
-					// capacity only for battery meters
-					.filter((p) => this.meterType === "battery" || p.Name !== "capacity")
-			);
+			return (this.template?.Params || [])
+				.filter((p) => !CUSTOM_FIELDS.includes(p.Name))
+				.map((p) => {
+					if (this.meterType === "battery" && p.Name === "capacity") {
+						p.Advanced = false;
+					}
+					return p;
+				});
+		},
+		normalParams() {
+			return this.templateParams.filter((p) => !p.Advanced);
+		},
+		advancedParams() {
+			return this.templateParams.filter((p) => p.Advanced);
 		},
 		modbus() {
 			const params = this.template?.Params || [];
@@ -221,9 +249,22 @@ export default {
 		modbusCapabilities() {
 			return this.modbus?.Choice || [];
 		},
+		modbusDefaults() {
+			const { ID, Comset, Baudrate, Port } = this.modbus || {};
+			return {
+				id: ID,
+				comset: Comset,
+				baudrate: Baudrate,
+				port: Port,
+			};
+		},
+		description() {
+			return this.template?.Requirements?.Description;
+		},
 		apiData() {
 			return {
 				template: this.templateName,
+				...this.modbusDefaults,
 				...this.values,
 				usage: this.meterType,
 			};
@@ -300,7 +341,6 @@ export default {
 		},
 		async loadTemplate() {
 			this.template = null;
-			this.reset();
 			this.loadingTemplate = true;
 			try {
 				const opts = {
@@ -390,6 +430,9 @@ export default {
 		},
 		selectType(type) {
 			this.selectedType = type;
+		},
+		templateChanged() {
+			this.reset();
 		},
 	},
 };

@@ -9,6 +9,7 @@ import (
 	"github.com/benbjohnson/clock"
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/util"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -16,108 +17,147 @@ type testCase struct {
 	// capable=0 signals 1p3p as set during loadpoint init
 	// physical/vehicle=0 signals unknown
 	// measuredPhases<>0 signals previous measurement
-	capable, physical, vehicle, measuredPhases, actExpected, maxExpected int
+	capable, physical, vehicle, measuredPhases, actExpected, maxExpected, minExpected int
 	// scaling expectation: d=down, u=up, du=both
 	scale string
 }
 
 var phaseTests = []testCase{
 	// 1p
-	{1, 1, 0, 0, 1, 1, ""},
-	{1, 1, 0, 1, 1, 1, ""},
-	{1, 1, 1, 0, 1, 1, ""},
-	{1, 1, 2, 0, 1, 1, ""},
-	{1, 1, 3, 0, 1, 1, ""},
+	{1, 1, 0, 0, 1, 1, 1, ""},
+	{1, 1, 0, 1, 1, 1, 1, ""},
+	{1, 1, 1, 0, 1, 1, 1, ""},
+	{1, 1, 2, 0, 1, 1, 1, ""},
+	{1, 1, 3, 0, 1, 1, 1, ""},
 	// 3p
-	{3, 3, 0, 0, unknownPhases, 3, ""},
-	{3, 3, 0, 1, 1, 1, ""},
-	{3, 3, 0, 2, 2, 2, ""},
-	{3, 3, 0, 3, 3, 3, ""},
-	{3, 3, 1, 0, 1, 1, ""},
-	{3, 3, 2, 0, 2, 2, ""},
-	{3, 3, 3, 0, 3, 3, ""},
+	{3, 3, 0, 0, unknownPhases, 3, 3, ""},
+	{3, 3, 0, 1, 1, 1, 1, ""},
+	{3, 3, 0, 2, 2, 2, 2, ""},
+	{3, 3, 0, 3, 3, 3, 3, ""},
+	{3, 3, 1, 0, 1, 1, 1, ""},
+	{3, 3, 2, 0, 2, 2, 2, ""},
+	{3, 3, 3, 0, 3, 3, 3, ""},
 	// 1p3p initial
-	{0, 0, 0, 0, unknownPhases, 3, "du"},
-	{0, 0, 0, 1, 1, 3, "u"},
-	{0, 0, 0, 2, 2, 3, "du"},
-	{0, 0, 0, 3, 3, 3, "du"},
-	{0, 0, 1, 0, 1, 1, ""},
-	{0, 0, 2, 0, 2, 2, "du"},
-	{0, 0, 3, 0, 3, 3, "du"},
+	{0, 0, 0, 0, unknownPhases, 3, 1, "du"},
+	{0, 0, 0, 1, 1, 3, 1, "u"},
+	{0, 0, 0, 2, 2, 3, 1, "du"},
+	{0, 0, 0, 3, 3, 3, 1, "du"},
+	{0, 0, 1, 0, 1, 1, 1, ""},
+	{0, 0, 2, 0, 2, 2, 1, "du"},
+	{0, 0, 3, 0, 3, 3, 1, "du"},
 	// 1p3p, 1 currently active
-	{0, 1, 0, 0, 1, 3, "u"},
-	{0, 1, 0, 1, 1, 3, "u"},
+	{0, 1, 0, 0, 1, 3, 1, "u"},
+	{0, 1, 0, 1, 1, 3, 1, "u"},
 	// {0, 1, 0, 2, 2,2,"u"}, // 2p active > 1p configured must not happen
 	// {0, 1, 0, 3, 3,3,"u"}, // 3p active > 1p configured must not happen
-	{0, 1, 1, 0, 1, 1, ""},
-	{0, 1, 2, 0, 1, 2, "u"},
-	{0, 1, 3, 0, 1, 3, "u"},
+	{0, 1, 1, 0, 1, 1, 1, ""},
+	{0, 1, 2, 0, 1, 2, 1, "u"},
+	{0, 1, 3, 0, 1, 3, 1, "u"},
 	// 1p3p, 3 currently active
-	{0, 3, 0, 0, unknownPhases, 3, "d"},
-	{0, 3, 0, 1, 1, 1, ""},
-	{0, 3, 0, 2, 2, 2, "d"},
-	{0, 3, 0, 3, 3, 3, "d"},
-	{0, 3, 1, 0, 1, 1, ""},
-	{0, 3, 2, 0, 2, 2, "d"},
-	{0, 3, 3, 0, 3, 3, "d"},
+	{0, 3, 0, 0, unknownPhases, 3, 1, "d"},
+	{0, 3, 0, 1, 1, 1, 1, ""},
+	{0, 3, 0, 2, 2, 2, 1, "d"},
+	{0, 3, 0, 3, 3, 3, 1, "d"},
+	{0, 3, 1, 0, 1, 1, 1, ""},
+	{0, 3, 2, 0, 2, 2, 1, "d"},
+	{0, 3, 3, 0, 3, 3, 1, "d"},
 }
 
 func TestMaxActivePhases(t *testing.T) {
-	ctrl := gomock.NewController(t)
-
 	// 0 is auto, 1/3 are fixed
-	for _, dflt := range []int{0, 1, 3} {
+	for _, configured := range []int{0, 1, 3} {
 		for _, tc := range phaseTests {
 			// skip invalid configs (free scaling for simple charger)
-			if dflt == 0 && tc.capable != 0 {
+			if configured == 0 && tc.capable != 0 {
 				continue
 			}
 
-			t.Log(dflt, tc)
+			t.Logf("configured %d %+v", configured, tc)
 
+			ctrl := gomock.NewController(t)
 			plainCharger := api.NewMockCharger(ctrl)
-
-			// 1p3p
-			var phaseCharger *api.MockPhaseSwitcher
-			if tc.capable == 0 {
-				phaseCharger = api.NewMockPhaseSwitcher(ctrl)
-			}
 
 			vehicle := api.NewMockVehicle(ctrl)
 			vehicle.EXPECT().Phases().Return(tc.vehicle).MinTimes(1)
 
 			lp := &Loadpoint{
-				configuredPhases: dflt, // fixed phases or default
+				configuredPhases: configured, // fixed phases or default
 				vehicle:          vehicle,
 				phases:           tc.physical,
 				measuredPhases:   tc.measuredPhases,
+				charger:          plainCharger,
 			}
 
-			if phaseCharger != nil {
+			// 1p3p
+			if tc.capable == 0 {
 				lp.charger = struct {
 					*api.MockCharger
 					*api.MockPhaseSwitcher
 				}{
-					plainCharger, phaseCharger,
-				}
-			} else {
-				lp.charger = struct {
-					*api.MockCharger
-				}{
-					plainCharger,
+					plainCharger, api.NewMockPhaseSwitcher(ctrl),
 				}
 			}
-
-			expectedPhases := tc.maxExpected
 
 			// restrict scalable charger by config
-			if tc.capable == 0 && dflt > 0 && dflt < tc.maxExpected {
-				expectedPhases = dflt
+			expectedPhases := tc.maxExpected
+			if tc.capable == 0 && configured > 0 && configured < tc.maxExpected {
+				expectedPhases = configured
 			}
 
-			if phs := lp.maxActivePhases(); phs != expectedPhases {
-				t.Errorf("expected max %d, got %d", expectedPhases, phs)
+			require.Equal(t, expectedPhases, lp.maxActivePhases(), "expected max active phases")
+			ctrl.Finish()
+		}
+	}
+}
+
+func TestMinActivePhases(t *testing.T) {
+	// 0 is auto, 1/3 are fixed
+	for _, configured := range []int{0, 1, 3} {
+		for _, tc := range phaseTests {
+			// skip invalid configs (free scaling for simple charger)
+			if configured == 0 && tc.capable != 0 {
+				continue
 			}
+
+			// skip physical config different than configured
+			if configured != 0 && tc.capable != 0 && configured != tc.physical {
+				continue
+			}
+
+			t.Logf("configured %d %+v", configured, tc)
+
+			ctrl := gomock.NewController(t)
+			plainCharger := api.NewMockCharger(ctrl)
+
+			vehicle := api.NewMockVehicle(ctrl)
+			vehicle.EXPECT().Phases().Return(tc.vehicle).AnyTimes()
+
+			lp := &Loadpoint{
+				configuredPhases: configured, // fixed phases or default
+				vehicle:          vehicle,
+				phases:           tc.physical,
+				measuredPhases:   tc.measuredPhases,
+				charger:          plainCharger,
+			}
+
+			// 1p3p
+			if tc.capable == 0 {
+				lp.charger = struct {
+					*api.MockCharger
+					*api.MockPhaseSwitcher
+				}{
+					plainCharger, api.NewMockPhaseSwitcher(ctrl),
+				}
+			}
+
+			// restrict scalable charger by config
+			expectedPhases := tc.minExpected
+			if tc.capable == 0 && configured > 0 && configured < tc.minExpected {
+				expectedPhases = configured
+			}
+
+			require.Equal(t, expectedPhases, lp.minActivePhases(), "expected min active phases")
+			ctrl.Finish()
 		}
 	}
 }
@@ -136,7 +176,7 @@ func testScale(t *testing.T, lp *Loadpoint, sitePower float64, direction string,
 		// scale-up should only execute when the 1p max current is exceeded
 		// we're testing this here and remove the upscale expectation for the following test below 1p max current
 		if maxAmp := -sitePower / Voltage; maxAmp < maxA {
-			if scaled := lp.pvScalePhases(sitePower, minA, maxAmp-0.0001); !scaled {
+			if scaled := lp.pvScalePhases(sitePower, minA, maxAmp-0.0001); scaled != 3 {
 				t.Errorf("%v act=%d max=%d missing scale %s at reduced max current %.1fA", tc, act, max, direction, maxAmp)
 			}
 
@@ -148,10 +188,10 @@ func testScale(t *testing.T, lp *Loadpoint, sitePower float64, direction string,
 	scaled := lp.pvScalePhases(sitePower, minA, maxA)
 
 	if strings.Contains(testExpectation, testDirection) {
-		if !scaled {
+		if scaled == 0 {
 			t.Errorf("%v act=%d max=%d missing scale %s", tc, act, max, direction)
 		}
-	} else if scaled {
+	} else if scaled != 0 {
 		t.Errorf("%v act=%d max=%d unexpected scale %s", tc, act, max, direction)
 	}
 }
@@ -217,16 +257,10 @@ func TestPvScalePhases(t *testing.T) {
 			t.Fatalf("%v invalid test case", tc)
 		}
 
-		if lp.phases != tc.physical {
-			t.Error("wrong phases", lp.phases, tc.physical)
-		}
+		require.Equal(t, tc.physical, lp.phases, "wrong phases")
+		require.Equal(t, tc.actExpected, lp.ActivePhases(), "expected active phases")
+		require.Equal(t, tc.maxExpected, lp.maxActivePhases(), "expected max active phases")
 
-		if phs := lp.ActivePhases(); phs != tc.actExpected {
-			t.Errorf("expected active %d, got %d", tc.actExpected, phs)
-		}
-		if phs := lp.maxActivePhases(); phs != tc.maxExpected {
-			t.Errorf("expected max %d, got %d", tc.maxExpected, phs)
-		}
 		ctrl.Finish()
 
 		// scaling
@@ -276,83 +310,83 @@ func TestPvScalePhasesTimer(t *testing.T) {
 		phases, measuredPhases int
 		sitePower              float64
 		toPhases               int
-		res                    bool
+		res                    int
 		prepare                func(lp *Loadpoint)
 	}{
 		// switch up from 1p/1p configured/active
-		{"1/1->3, not enough power", 1, 1, 0, 1, false, nil},
-		{"1/1->3, kickoff", 1, 1, -3 * Voltage * minA, 1, false, func(lp *Loadpoint) {
+		{"1/1->3, not enough power", 1, 1, 0, 1, 0, nil},
+		{"1/1->3, kickoff", 1, 1, -3 * Voltage * minA, 1, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = time.Time{}
 		}},
-		{"1/1->3, timer running", 1, 1, -3 * Voltage * minA, 1, false, func(lp *Loadpoint) {
+		{"1/1->3, timer running", 1, 1, -3 * Voltage * minA, 1, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = lp.clock.Now()
 		}},
-		{"1/1->3, timer elapsed", 1, 1, -3 * Voltage * minA, 3, true, func(lp *Loadpoint) {
+		{"1/1->3, timer elapsed", 1, 1, -3 * Voltage * minA, 3, 3, func(lp *Loadpoint) {
 			lp.phaseTimer = elapsed
 		}},
 
-		// omit to switch up (again) from 3p/1p configured/active
-		{"3/1->3, not enough power", 3, 1, 0, 3, false, nil},
-		{"3/1->3, kickoff", 3, 1, -3 * Voltage * minA, 3, false, func(lp *Loadpoint) {
+		// omit to switch up (again) from 3p/1p configured/a0ctive
+		{"3/1->3, not enough power", 3, 1, 0, 3, 0, nil},
+		{"3/1->3, kickoff", 3, 1, -3 * Voltage * minA, 3, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = time.Time{}
 		}},
-		{"3/1->3, timer running", 3, 1, -3 * Voltage * minA, 3, false, func(lp *Loadpoint) {
+		{"3/1->3, timer running", 3, 1, -3 * Voltage * minA, 3, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = lp.clock.Now()
 		}},
-		{"3/1->3, timer elapsed", 3, 1, -3 * Voltage * minA, 3, false, func(lp *Loadpoint) {
+		{"3/1->3, timer elapsed", 3, 1, -3 * Voltage * minA, 3, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = elapsed
 		}},
 
 		// omit to switch down from 3p/1p configured/active
-		{"3/1->1, not enough power", 3, 1, 0, 3, false, nil},
-		{"3/1->1, kickoff", 3, 1, -1 * Voltage * minA, 3, false, func(lp *Loadpoint) {
+		{"3/1->1, not enough power", 3, 1, 0, 3, 0, nil},
+		{"3/1->1, kickoff", 3, 1, -1 * Voltage * minA, 3, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = time.Time{}
 		}},
-		{"3/1->1, timer running", 3, 1, -1 * Voltage * minA, 3, false, func(lp *Loadpoint) {
+		{"3/1->1, timer running", 3, 1, -1 * Voltage * minA, 3, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = lp.clock.Now()
 		}},
-		{"3/1->1, timer elapsed", 3, 1, -1 * Voltage * minA, 3, false, func(lp *Loadpoint) {
+		{"3/1->1, timer elapsed", 3, 1, -1 * Voltage * minA, 3, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = elapsed
 		}},
 
 		// switch down from 3p/3p configured/active
-		{"3/3->1, enough power", 3, 3, 0, 3, false, nil},
-		{"3/3->1, enough power, timer elapsed, load point enabled", 3, 3, 0, 3, false, func(lp *Loadpoint) {
+		{"3/3->1, enough power", 3, 3, 0, 3, 0, nil},
+		{"3/3->1, enough power, timer elapsed, load point enabled", 3, 3, 0, 3, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = elapsed
 			lp.enabled = true
 		}},
-		{"3/3->1, enough power, timer elapsed, load point disabled", 3, 3, 0, 1, true, func(lp *Loadpoint) {
+		{"3/3->1, enough power, timer elapsed, load point disabled", 3, 3, 0, 1, 1, func(lp *Loadpoint) {
 			lp.phaseTimer = elapsed
 			lp.enabled = false
 		}},
-		{"3/3->1, kickoff", 3, 3, 0.1, 3, false, func(lp *Loadpoint) {
+		{"3/3->1, kickoff", 3, 3, 0.1, 3, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = time.Time{}
 		}},
-		{"3/3->1, timer running", 3, 3, 0.1, 3, false, func(lp *Loadpoint) {
+		{"3/3->1, timer running", 3, 3, 0.1, 3, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = lp.clock.Now()
 		}},
-		{"3/3->1, timer elapsed", 3, 3, 0.1, 1, true, func(lp *Loadpoint) {
+		{"3/3->1, timer elapsed", 3, 3, 0.1, 1, 1, func(lp *Loadpoint) {
 			lp.phaseTimer = elapsed
 		}},
 
 		// switch down from 3p/0p while not yet charging
-		{"3/0->1, not enough power, not charging", 3, 0, 0, 1, true, func(lp *Loadpoint) {
+		{"3/0->1, not enough power, not charging", 3, 0, 0, 1, 1, func(lp *Loadpoint) {
 			lp.status = api.StatusB
 		}},
 		// switch up from 1p/0p while not yet charging
-		{"1/0->3, enough power, not charging", 1, 0, -3 * Voltage * minA, 3, true, func(lp *Loadpoint) {
+		{"1/0->3, enough power, not charging", 1, 0, -3 * Voltage * minA, 3, 3, func(lp *Loadpoint) {
 			lp.status = api.StatusB
 		}},
 
 		// error states from 1p/3p misconfiguration - no correction for time being (stay at 1p)
-		{"1/3->1, enough power", 1, 3, -1 * Voltage * maxA, 1, false, nil},
-		{"1/3->1, kickoff, correct phase setting", 1, 3, 0.1, 1, false, func(lp *Loadpoint) {
+		{"1/3->1, enough power", 1, 3, -1 * Voltage * maxA, 1, 0, nil},
+		{"1/3->1, kickoff, correct phase setting", 1, 3, 0.1, 1, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = time.Time{}
 		}},
-		{"1/3->1, timer running, correct phase setting", 1, 3, 0.1, 1, false, func(lp *Loadpoint) {
+		{"1/3->1, timer running, correct phase setting", 1, 3, 0.1, 1, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = lp.clock.Now()
 		}},
-		{"1/3->1, switch not executed", 1, 3, 0.1, 1, false, func(lp *Loadpoint) {
+		{"1/3->1, switch not executed", 1, 3, 0.1, 1, 0, func(lp *Loadpoint) {
 			lp.phaseTimer = elapsed
 		}},
 	}
@@ -383,18 +417,14 @@ func TestPvScalePhasesTimer(t *testing.T) {
 			tc.prepare(lp)
 		}
 
-		if tc.res {
+		if tc.res != 0 {
 			charger.MockPhaseSwitcher.EXPECT().Phases1p3p(tc.toPhases).Return(nil)
 		}
 
 		res := lp.pvScalePhases(tc.sitePower, minA, maxA)
 
-		switch {
-		case tc.res != res:
-			t.Errorf("expected %v, got %v", tc.res, res)
-		case lp.phases != tc.toPhases:
-			t.Errorf("expected %dp, got %dp", tc.toPhases, lp.phases)
-		}
+		require.Equal(t, tc.res, res, tc.desc)
+		require.Equal(t, tc.toPhases, lp.phases, tc.desc)
 	}
 }
 

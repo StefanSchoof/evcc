@@ -10,7 +10,6 @@ import (
 	"text/template"
 
 	"github.com/Masterminds/sprig/v3"
-	"github.com/evcc-io/evcc/util"
 )
 
 // Template describes is a proxy device for use with cli and automated testing
@@ -208,7 +207,7 @@ var proxyTmpl string
 
 // RenderProxyWithValues renders the proxy template
 func (t *Template) RenderProxyWithValues(values map[string]interface{}, lang string) ([]byte, error) {
-	tmpl, err := template.New("yaml").Funcs(sprig.TxtFuncMap()).Parse(proxyTmpl)
+	tmpl, err := template.New("yaml").Funcs(sprig.FuncMap()).Parse(proxyTmpl)
 	if err != nil {
 		panic(err)
 	}
@@ -216,23 +215,22 @@ func (t *Template) RenderProxyWithValues(values map[string]interface{}, lang str
 	t.ModbusParams("", values)
 
 	for index, p := range t.Params {
-		for k, v := range values {
-			if p.Name != k {
-				continue
-			}
+		v, ok := values[p.Name]
+		if !ok {
+			continue
+		}
 
-			switch p.Type {
-			case TypeStringList:
-				for _, e := range v.([]string) {
-					t.Params[index].Values = append(p.Values, yamlQuote(e))
-				}
-			default:
-				switch v := v.(type) {
-				case string:
-					t.Params[index].Value = yamlQuote(v)
-				case int:
-					t.Params[index].Value = strconv.Itoa(v)
-				}
+		switch p.Type {
+		case TypeStringList:
+			for _, e := range v.([]string) {
+				t.Params[index].Values = append(p.Values, yamlQuote(e))
+			}
+		default:
+			switch v := v.(type) {
+			case string:
+				t.Params[index].Value = yamlQuote(v)
+			case int:
+				t.Params[index].Value = strconv.Itoa(v)
 			}
 		}
 	}
@@ -268,9 +266,9 @@ func (t *Template) RenderProxyWithValues(values map[string]interface{}, lang str
 }
 
 // RenderResult renders the result template to instantiate the proxy
-func (t *Template) RenderResult(renderMode int, other map[string]interface{}) ([]byte, map[string]interface{}, error) {
+func (t *Template) RenderResult(renderMode int, other map[string]any) ([]byte, map[string]any, error) {
 	values := t.Defaults(renderMode)
-	if err := util.DecodeOther(other, &values); err != nil {
+	if err := mergeMaps(other, values); err != nil {
 		return nil, values, err
 	}
 

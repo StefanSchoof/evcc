@@ -59,9 +59,9 @@ func NewEnerginetFromConfig(other map[string]interface{}) (api.Tariff, error) {
 func (t *Energinet) run(done chan error) {
 	var once sync.Once
 	client := request.NewHelper(t.log)
-	bo := newBackoff()
 
-	for ; true; <-time.Tick(time.Hour) {
+	tick := time.NewTicker(time.Hour)
+	for ; true; <-tick.C {
 		var res energinet.Prices
 
 		ts := time.Now().Truncate(time.Hour)
@@ -71,8 +71,8 @@ func (t *Energinet) run(done chan error) {
 			t.region)
 
 		if err := backoff.Retry(func() error {
-			return client.GetJSON(uri, &res)
-		}, bo); err != nil {
+			return backoffPermanentError(client.GetJSON(uri, &res))
+		}, bo()); err != nil {
 			once.Do(func() { done <- err })
 
 			t.log.ERROR.Println(err)
@@ -89,9 +89,8 @@ func (t *Energinet) run(done chan error) {
 			}
 			data = append(data, ar)
 		}
-		data.Sort()
 
-		t.data.Set(data)
+		mergeRates(t.data, data)
 		once.Do(func() { close(done) })
 	}
 }

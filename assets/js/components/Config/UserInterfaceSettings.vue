@@ -1,17 +1,18 @@
 <template>
-	<SponsorTokenExpires :sponsorTokenExpires="sponsorTokenExpires" />
 	<div class="container mx-0 px-0">
 		<FormRow id="settingsDesign" :label="$t('settings.theme.label')">
 			<SelectGroup
 				id="settingsDesign"
 				v-model="theme"
 				class="w-100"
+				transparent
 				:options="
 					THEMES.map((value) => ({
 						value,
 						name: $t(`settings.theme.${value}`),
 					}))
 				"
+				equal-width
 			/>
 		</FormRow>
 		<FormRow id="settingsLanguage" :label="$t('settings.language.label')">
@@ -31,16 +32,18 @@
 				id="settingsUnit"
 				v-model="unit"
 				class="w-75"
+				transparent
 				:options="
 					UNITS.map((value) => ({
 						value,
 						name: $t(`settings.unit.${value}`),
 					}))
 				"
+				equal-width
 			/>
 		</FormRow>
 		<FormRow id="telemetryEnabled" :label="$t('settings.telemetry.label')">
-			<TelemetrySettings :sponsor="sponsor" class="mt-1 mb-0" />
+			<TelemetrySettings :sponsorActive="!!sponsor.name" class="mt-1 mb-0" />
 		</FormRow>
 		<FormRow id="hiddenFeaturesEnabled" :label="`${$t('settings.hiddenFeatures.label')} 🧪`">
 			<div class="form-check form-switch my-1">
@@ -58,12 +61,23 @@
 				</div>
 			</div>
 		</FormRow>
+		<FormRow v-if="fullscreenAvailable" :label="$t('settings.fullscreen.label')">
+			<button
+				v-if="fullscreenActive"
+				class="btn btn-sm btn-outline-secondary"
+				@click="exitFullscreen"
+			>
+				{{ $t("settings.fullscreen.exit") }}
+			</button>
+			<button v-else class="btn btn-sm btn-outline-secondary" @click="enterFullscreen">
+				{{ $t("settings.fullscreen.enter") }}
+			</button>
+		</FormRow>
 	</div>
 </template>
 
 <script>
 import TelemetrySettings from "../TelemetrySettings.vue";
-import SponsorTokenExpires from "../SponsorTokenExpires.vue";
 import FormRow from "../FormRow.vue";
 import SelectGroup from "../SelectGroup.vue";
 import {
@@ -75,13 +89,13 @@ import {
 import { getThemePreference, setThemePreference, THEMES } from "../../theme";
 import { getUnits, setUnits, UNITS } from "../../units";
 import { getHiddenFeatures, setHiddenFeatures } from "../../featureflags";
+import { isApp } from "../../utils/native";
 
 export default {
 	name: "UserInterfaceSettings",
-	components: { TelemetrySettings, FormRow, SelectGroup, SponsorTokenExpires },
+	components: { TelemetrySettings, FormRow, SelectGroup },
 	props: {
-		sponsor: String,
-		sponsorTokenExpires: Number,
+		sponsor: Object,
 	},
 	data: function () {
 		return {
@@ -89,6 +103,7 @@ export default {
 			language: getLocalePreference() || "",
 			unit: getUnits(),
 			hiddenFeatures: getHiddenFeatures(),
+			fullscreenActive: false,
 			THEMES,
 			UNITS,
 		};
@@ -101,6 +116,12 @@ export default {
 			// sort by name
 			locales.sort((a, b) => (a.name < b.name ? -1 : 1));
 			return locales;
+		},
+		fullscreenAvailable: () => {
+			const isSupported = document.fullscreenEnabled;
+			const isPwa =
+				navigator.standalone || window.matchMedia("(display-mode: standalone)").matches;
+			return isSupported && !isPwa && !isApp();
 		},
 	},
 	watch: {
@@ -120,6 +141,23 @@ export default {
 			} else {
 				removeLocalePreference(i18n);
 			}
+		},
+	},
+	mounted() {
+		document.addEventListener("fullscreenchange", this.fullscreenChange);
+	},
+	unmounted() {
+		document.removeEventListener("fullscreenchange", this.fullscreenChange);
+	},
+	methods: {
+		enterFullscreen() {
+			document.documentElement.requestFullscreen();
+		},
+		exitFullscreen() {
+			document.exitFullscreen();
+		},
+		fullscreenChange() {
+			this.fullscreenActive = !!document.fullscreenElement;
 		},
 	},
 };

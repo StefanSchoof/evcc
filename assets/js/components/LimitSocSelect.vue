@@ -1,7 +1,7 @@
 <template>
 	<LabelAndValue class="flex-grow-1" :label="title" align="end" data-testid="limit-soc">
 		<h3 class="value m-0">
-			<label class="position-relative">
+			<label class="position-relative" role="button">
 				<select :value="limitSoc" class="custom-select" @change="change">
 					<option v-for="{ soc, text } in options" :key="soc" :value="soc">
 						{{ text }}
@@ -39,7 +39,7 @@ export default {
 		options: function () {
 			const result = [];
 			for (let soc = 20; soc <= 100; soc += this.step) {
-				let text = this.fmtSocOption(soc, this.rangePerSoc, distanceUnit(), this.heating);
+				const text = this.fmtSocOption(soc, this.rangePerSoc, distanceUnit(), this.heating);
 				result.push({ soc, text });
 			}
 			return result;
@@ -67,7 +67,7 @@ export default {
 			return null;
 		},
 		formatSoc: function (value) {
-			return this.heating ? this.fmtTemperature(value) : `${Math.round(value)}%`;
+			return this.heating ? this.fmtTemperature(value) : this.fmtPercentage(value);
 		},
 		formatKm: function (value) {
 			return `${this.fmtNumber(value, 0)} ${distanceUnit()}`;
@@ -89,6 +89,7 @@ export default {
 	top: 0;
 	bottom: 0;
 	right: 0;
+	cursor: pointer;
 	position: absolute;
 	opacity: 0;
 }

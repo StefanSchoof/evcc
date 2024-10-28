@@ -116,7 +116,7 @@ var configTmpl string
 
 // RenderConfiguration creates a yaml configuration
 func (c *Configure) RenderConfiguration() ([]byte, error) {
-	tmpl, err := template.New("yaml").Funcs(sprig.TxtFuncMap()).Parse(configTmpl)
+	tmpl, err := template.New("yaml").Funcs(sprig.FuncMap()).Parse(configTmpl)
 	if err != nil {
 		panic(err)
 	}

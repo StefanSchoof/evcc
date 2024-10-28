@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"errors"
+	"slices"
 	"sync"
 
 	"github.com/evcc-io/evcc/api"
@@ -16,6 +18,8 @@ const (
 	// masked indicates a masked config parameter value
 	masked = "***"
 )
+
+type newFromConfFunc[T any] func(context.Context, string, map[string]any) (T, error)
 
 var (
 	dirty bool
@@ -85,7 +89,7 @@ func mergeMasked(class templates.Class, conf, old map[string]any) (map[string]an
 	return res, nil
 }
 
-func deviceInstanceFromMergedConfig[T any](id int, class templates.Class, conf map[string]any, newFromConf func(string, map[string]any) (T, error), h config.Handler[T]) (config.Device[T], T, map[string]any, error) {
+func deviceInstanceFromMergedConfig[T any](id int, class templates.Class, conf map[string]any, newFromConf newFromConfFunc[T], h config.Handler[T]) (config.Device[T], T, map[string]any, error) {
 	var zero T
 
 	dev, err := h.ByName(config.NameForID(id))
@@ -98,7 +102,7 @@ func deviceInstanceFromMergedConfig[T any](id int, class templates.Class, conf m
 		return nil, zero, nil, err
 	}
 
-	instance, err := newFromConf(typeTemplate, merged)
+	instance, err := newFromConf(context.TODO(), typeTemplate, merged)
 
 	return dev, instance, merged, err
 }
@@ -133,7 +137,15 @@ func testInstance(instance any) map[string]testResult {
 
 	if dev, ok := instance.(api.Battery); ok {
 		val, err := dev.Soc()
-		res["soc"] = makeResult(val, err)
+		key := "soc"
+		if fd, ok := instance.(api.FeatureDescriber); ok && slices.Contains(fd.Features(), api.Heating) {
+			key = "temp"
+		}
+		res[key] = makeResult(val, err)
+	}
+
+	if _, ok := instance.(api.BatteryController); ok {
+		res["controllable"] = makeResult(true, nil)
 	}
 
 	if dev, ok := instance.(api.VehicleOdometer); ok {
@@ -182,7 +194,7 @@ func testInstance(instance any) map[string]testResult {
 	}
 
 	if dev, ok := instance.(api.SocLimiter); ok {
-		val, err := dev.TargetSoc()
+		val, err := dev.GetLimitSoc()
 		res["socLimit"] = makeResult(val, err)
 	}
 

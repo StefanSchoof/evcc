@@ -60,26 +60,29 @@ func (lp *Loadpoint) SocBasedPlanning() bool {
 
 // effectiveMinCurrent returns the effective min current
 func (lp *Loadpoint) effectiveMinCurrent() float64 {
-	minCurrent := lp.GetMinCurrent()
+	lpMin := lp.GetMinCurrent()
+	var vehicleMin, chargerMin float64
 
 	if v := lp.GetVehicle(); v != nil {
 		if res, ok := v.OnIdentified().GetMinCurrent(); ok {
-			minCurrent = max(minCurrent, res)
+			vehicleMin = res
 		}
 	}
 
 	if c, ok := lp.charger.(api.CurrentLimiter); ok {
 		if res, _, err := c.GetMinMaxCurrent(); err == nil {
-			if res > 0 && res < minCurrent {
-				minCurrent = res
-			} else {
-				minCurrent = max(minCurrent, res)
-			}
-			lp.publish(keys.EffectiveMinCurrent, minCurrent)
+			chargerMin = res
 		}
 	}
 
-	return minCurrent
+	switch {
+	case max(vehicleMin, chargerMin) == 0:
+		return lpMin
+	case chargerMin > 0:
+		return max(vehicleMin, chargerMin)
+	default:
+		return max(vehicleMin, lpMin)
+	}
 }
 
 // effectiveMaxCurrent returns the effective max current
@@ -87,15 +90,14 @@ func (lp *Loadpoint) effectiveMaxCurrent() float64 {
 	maxCurrent := lp.GetMaxCurrent()
 
 	if v := lp.GetVehicle(); v != nil {
-		if res, ok := v.OnIdentified().GetMaxCurrent(); ok {
+		if res, ok := v.OnIdentified().GetMaxCurrent(); ok && res > 0 {
 			maxCurrent = min(maxCurrent, res)
 		}
 	}
 
 	if c, ok := lp.charger.(api.CurrentLimiter); ok {
-		if _, res, err := c.GetMinMaxCurrent(); err == nil {
+		if _, res, err := c.GetMinMaxCurrent(); err == nil && res > 0 {
 			maxCurrent = min(maxCurrent, res)
-			lp.publish(keys.EffectiveMaxCurrent, maxCurrent)
 		}
 	}
 
@@ -122,10 +124,14 @@ func (lp *Loadpoint) effectiveLimitSoc() int {
 	return 100
 }
 
-// EffectiveMinPower returns the effective min power for a single phase
+// effectiveStepPower returns the effective step power for the currently active phases
+func (lp *Loadpoint) effectiveStepPower() float64 {
+	return Voltage * float64(lp.ActivePhases())
+}
+
+// EffectiveMinPower returns the effective min power for the minimum active phases
 func (lp *Loadpoint) EffectiveMinPower() float64 {
-	// TODO check if 1p available
-	return Voltage * lp.effectiveMinCurrent()
+	return Voltage * lp.effectiveMinCurrent() * float64(lp.minActivePhases())
 }
 
 // EffectiveMaxPower returns the effective max power taking vehicle capabilities and phase scaling into account

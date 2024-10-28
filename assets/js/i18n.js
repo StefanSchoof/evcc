@@ -13,11 +13,13 @@ export const LOCALES = {
   cs: ["Czech", "Česky"],
   da: ["Danish", "Dansk"],
   de: ["German", "Deutsch"],
+  el: ["Greek", "Ελληνικά"],
   en: ["English", "English"],
   es: ["Spanish", "Español"],
   fi: ["Finnish", "Suomi"],
   fr: ["French", "Français"],
   hr: ["Croatian", "Hrvatski"],
+  hu: ["Hungarian", "Magyar"],
   it: ["Italian", "Italiano"],
   lb: ["Luxembourgish", "Lëtzebuergesch"],
   lt: ["Lithuanian", "Lietuvių"],
@@ -97,4 +99,10 @@ export async function ensureCurrentLocaleMessages(i18n) {
   if (!i18n.availableLocales.includes(locale)) {
     await loadLocaleMessages(i18n, locale);
   }
+}
+
+export function docsPrefix() {
+  const locale = getLocale();
+  const path = locale === "de" ? "" : `/en`;
+  return `https://docs.evcc.io${path}`;
 }

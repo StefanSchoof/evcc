@@ -9,6 +9,7 @@ import (
 
 	"github.com/evcc-io/evcc/api"
 	"github.com/evcc-io/evcc/core/keys"
+	"github.com/evcc-io/evcc/core/loadpoint"
 	"github.com/evcc-io/evcc/core/session"
 	"github.com/evcc-io/evcc/core/soc"
 	"github.com/evcc-io/evcc/core/vehicle"
@@ -20,12 +21,20 @@ const (
 	vehicleDetectDuration = 10 * time.Minute
 )
 
+// availableVehicles is the slice of vehicles from the coordinator that are available
+func (lp *Loadpoint) availableVehicles() []api.Vehicle {
+	if lp.coordinator == nil {
+		return nil
+	}
+	return lp.coordinator.GetVehicles(true)
+}
+
 // coordinatedVehicles is the slice of vehicles from the coordinator
 func (lp *Loadpoint) coordinatedVehicles() []api.Vehicle {
 	if lp.coordinator == nil {
 		return nil
 	}
-	return lp.coordinator.GetVehicles()
+	return lp.coordinator.GetVehicles(false)
 }
 
 // setVehicleIdentifier updated the vehicle id as read from the charger
@@ -165,19 +174,21 @@ func (lp *Loadpoint) setActiveVehicle(v api.Vehicle) {
 }
 
 func (lp *Loadpoint) wakeUpVehicle() {
-	// charger
-	if c, ok := lp.charger.(api.Resurrector); ok {
-		lp.log.DEBUG.Println("wake-up charger")
-		if err := c.WakeUp(); err != nil {
-			lp.log.ERROR.Printf("wake-up charger: %v", err)
+	if lp.wakeUpTimer.wakeupAttemptsLeft%2 != 0 {
+		// charger
+		if c, ok := lp.charger.(api.Resurrector); ok {
+			lp.log.DEBUG.Printf("wake-up charger, attempts left: %d", lp.wakeUpTimer.wakeupAttemptsLeft)
+			if err := c.WakeUp(); err != nil {
+				lp.log.ERROR.Printf("wake-up charger: %v", err)
+			}
 		}
-	}
-
-	// vehicle
-	if vs, ok := lp.GetVehicle().(api.Resurrector); ok {
-		lp.log.DEBUG.Println("wake-up vehicle")
-		if err := vs.WakeUp(); err != nil {
-			lp.log.ERROR.Printf("wake-up vehicle: %v", err)
+	} else {
+		// vehicle
+		if vs, ok := lp.GetVehicle().(api.Resurrector); ok {
+			lp.log.DEBUG.Printf("wake-up vehicle, attempts left: %d", lp.wakeUpTimer.wakeupAttemptsLeft)
+			if err := vs.WakeUp(); err != nil {
+				lp.log.ERROR.Printf("wake-up vehicle: %v", err)
+			}
 		}
 	}
 }
@@ -189,7 +200,7 @@ func (lp *Loadpoint) unpublishVehicle() {
 	lp.publish(keys.VehicleClimaterActive, nil)
 	lp.publish(keys.VehicleSoc, 0.0)
 	lp.publish(keys.VehicleRange, int64(0))
-	lp.publish(keys.VehicleTargetSoc, 0.0)
+	lp.publish(keys.VehicleLimitSoc, 0.0)
 
 	lp.setRemainingEnergy(0)
 	lp.setRemainingDuration(0)
@@ -294,7 +305,7 @@ func (lp *Loadpoint) vehicleOdometer() {
 			lp.updateSession(func(session *session.Session) {
 				session.Odometer = &odo
 			})
-		} else if !errors.Is(err, api.ErrNotAvailable) {
+		} else if !loadpoint.AcceptableError(err) {
 			lp.log.ERROR.Printf("vehicle odometer: %v", err)
 		}
 	}

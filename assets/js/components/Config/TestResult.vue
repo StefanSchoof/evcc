@@ -1,21 +1,17 @@
 <template>
-	<div
-		class="alert my-4"
-		:class="{
-			'alert-secondary': unknown || running,
-			'alert-success': success,
-			'alert-danger': failed,
-		}"
-		role="alert"
-	>
+	<div class="test-result my-4 p-4">
 		<div class="d-flex justify-content-between align-items-center">
-			<div>
-				{{ $t("config.validation.label") }}:
+			<strong>
+				<span>{{ $t("config.validation.label") }}: </span>
 				<span v-if="unknown">{{ $t("config.validation.unknown") }}</span>
 				<span v-if="running">{{ $t("config.validation.running") }}</span>
-				<strong v-if="success">{{ $t("config.validation.success") }}</strong>
-				<strong v-if="failed">{{ $t("config.validation.failed") }}</strong>
-			</div>
+				<span v-if="success" class="text-success">
+					{{ $t("config.validation.success") }}
+				</span>
+				<span v-if="failed" class="text-danger">
+					{{ $t("config.validation.failed") }}
+				</span>
+			</strong>
 			<span
 				v-if="running"
 				class="spinner-border spinner-border-sm"
@@ -26,13 +22,13 @@
 				{{ $t("config.validation.validate") }}
 			</a>
 		</div>
-		<hr v-if="error" />
-		<div v-if="error">
+		<hr v-if="error" class="divider" />
+		<div v-if="error" class="text-danger">
 			{{ error }}
 		</div>
-		<hr v-if="result" />
+		<hr v-if="result" class="divider" />
 		<div v-if="result">
-			<DeviceTags :tags="result" />
+			<DeviceTags :tags="result" class="success-values" />
 		</div>
 	</div>
 </template>
@@ -42,6 +38,7 @@ import DeviceTags from "./DeviceTags.vue";
 
 export default {
 	name: "TestResult",
+	components: { DeviceTags },
 	props: {
 		success: Boolean,
 		failed: Boolean,
@@ -51,6 +48,16 @@ export default {
 		error: String,
 	},
 	emits: ["test"],
-	components: { DeviceTags },
 };
 </script>
+<style scoped>
+.test-result {
+	border: 1px solid var(--bs-border-color);
+	border-radius: var(--bs-border-radius);
+}
+.divider {
+	border-top-color: 1px solid var(--bs-border-color);
+	margin-left: -1.5rem;
+	margin-right: -1.5rem;
+}
+</style>

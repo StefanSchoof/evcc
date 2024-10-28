@@ -23,16 +23,25 @@ type API interface {
 	GetBatteryMeterRefs() []string
 	SetBatteryMeterRefs([]string)
 
+	// circuits
+	GetCircuit() api.Circuit
+	SetCircuit(api.Circuit)
+
 	//
 	// battery
 	//
 
+	GetPrioritySoc() float64
+	SetPrioritySoc(float64) error
 	GetBufferSoc() float64
 	SetBufferSoc(float64) error
 	GetBufferStartSoc() float64
 	SetBufferStartSoc(float64) error
-	GetPrioritySoc() float64
-	SetPrioritySoc(float64) error
+
+	// GetBatteryGridChargeLimit get the grid charge limit
+	GetBatteryGridChargeLimit() *float64
+	// SetBatteryGridChargeLimit sets the grid charge limit
+	SetBatteryGridChargeLimit(limit *float64)
 
 	//
 	// power and energy
@@ -47,8 +56,6 @@ type API interface {
 
 	// GetTariff returns the respective tariff
 	GetTariff(string) api.Tariff
-	GetSmartCostLimit() float64
-	SetSmartCostLimit(float64) error
 
 	//
 	// battery control

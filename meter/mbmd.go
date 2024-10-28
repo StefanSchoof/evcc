@@ -3,6 +3,7 @@ package meter
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/evcc-io/evcc/api"
@@ -10,16 +11,15 @@ import (
 	"github.com/evcc-io/evcc/util/modbus"
 	"github.com/volkszaehler/mbmd/meters"
 	"github.com/volkszaehler/mbmd/meters/rs485"
-	"github.com/volkszaehler/mbmd/meters/sunspec"
 )
 
 // ModbusMbmd is an api.Meter implementation with configurable getters and setters.
 type ModbusMbmd struct {
 	conn     *modbus.Connection
-	device   meters.Device
-	opPower  modbus.Operation
-	opEnergy modbus.Operation
-	opSoc    modbus.Operation
+	device   *rs485.RS485
+	opPower  rs485.Operation
+	opEnergy rs485.Operation
+	opSoc    rs485.Operation
 }
 
 func init() {
@@ -53,40 +53,30 @@ func NewModbusMbmdFromConfig(other map[string]interface{}) (api.Meter, error) {
 
 	// assume RTU if not set and this is a known RS485 meter model
 	if cc.RTU == nil {
-		b := modbus.IsRS485(cc.Model)
-		cc.RTU = &b
+		if rtu := isRS485(cc.Model); rtu {
+			cc.RTU = &rtu
+		}
 	}
 
-	conn, err := modbus.NewConnection(cc.URI, cc.Device, cc.Comset, cc.Baudrate, modbus.ProtocolFromRTU(cc.RTU), cc.ID)
+	modbus.Lock()
+	defer modbus.Unlock()
+
+	conn, err := modbus.NewConnection(cc.URI, cc.Device, cc.Comset, cc.Baudrate, cc.Settings.Protocol(), cc.ID)
 	if err != nil {
 		return nil, err
 	}
 
-	// set non-default delay
-	if cc.Delay > 0 {
-		conn.Delay(cc.Delay)
-	}
-
 	// set non-default timeout
-	if cc.Timeout > 0 {
-		conn.Timeout(cc.Timeout)
-	}
+	conn.Timeout(cc.Timeout)
+
+	// set non-default delay
+	conn.Delay(cc.Delay)
 
 	log := util.NewLogger("modbus")
 	conn.Logger(log.TRACE)
 
 	// prepare device
-	device, err := modbus.NewDevice(cc.Model, cc.SubDevice)
-
-	if err == nil {
-		err = device.Initialize(conn)
-
-		// silence Kostal implementation errors
-		if errors.Is(err, meters.ErrPartiallyOpened) {
-			err = nil
-		}
-	}
-
+	device, err := rs485.NewDevice(strings.ToUpper(cc.Model))
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +86,7 @@ func NewModbusMbmdFromConfig(other map[string]interface{}) (api.Meter, error) {
 		device: device,
 	}
 
-	m.opPower, err = modbus.ParseOperation(device, cc.Power)
+	m.opPower, err = rs485FindDeviceOp(device, cc.Power)
 	if err != nil {
 		return nil, fmt.Errorf("invalid measurement for power: %s", cc.Power)
 	}
@@ -104,7 +94,7 @@ func NewModbusMbmdFromConfig(other map[string]interface{}) (api.Meter, error) {
 	// decorate energy
 	var totalEnergy func() (float64, error)
 	if cc.Energy != "" {
-		m.opEnergy, err = modbus.ParseOperation(device, cc.Energy)
+		m.opEnergy, err = rs485FindDeviceOp(device, cc.Energy)
 		if err != nil {
 			return nil, fmt.Errorf("invalid measurement for energy: %s", cc.Energy)
 		}
@@ -133,7 +123,7 @@ func NewModbusMbmdFromConfig(other map[string]interface{}) (api.Meter, error) {
 	// decorate soc
 	var soc func() (float64, error)
 	if cc.Soc != "" {
-		m.opSoc, err = modbus.ParseOperation(device, cc.Soc)
+		m.opSoc, err = rs485FindDeviceOp(device, cc.Soc)
 		if err != nil {
 			return nil, fmt.Errorf("invalid measurement for soc: %s", cc.Soc)
 		}
@@ -145,53 +135,32 @@ func NewModbusMbmdFromConfig(other map[string]interface{}) (api.Meter, error) {
 }
 
 func (m *ModbusMbmd) buildPhaseProviders(readings []string) (func() (float64, float64, float64, error), error) {
-	var res func() (float64, float64, float64, error)
-	if len(readings) > 0 {
-		if len(readings) != 3 {
-			return nil, errors.New("need one per phase, total three")
-		}
-
-		phases := make([]func() (float64, error), 0, 3)
-		for idx, reading := range readings {
-			opCurrent, err := modbus.ParseOperation(m.device, reading)
-			if err != nil {
-				return nil, fmt.Errorf("invalid measurement [%d]: %s", idx, reading)
-			}
-
-			c := func() (float64, error) {
-				return m.floatGetter(opCurrent)
-			}
-
-			phases = append(phases, c)
-		}
-
-		res = collectPhaseProviders(phases)
+	if len(readings) == 0 {
+		return nil, nil
 	}
 
-	return res, nil
+	if len(readings) != 3 {
+		return nil, errors.New("need one per phase, total three")
+	}
+
+	var phases [3]func() (float64, error)
+	for idx, reading := range readings {
+		opCurrent, err := rs485FindDeviceOp(m.device, reading)
+		if err != nil {
+			return nil, fmt.Errorf("invalid measurement [%d]: %s", idx, reading)
+		}
+
+		phases[idx] = func() (float64, error) {
+			return m.floatGetter(opCurrent)
+		}
+	}
+
+	return collectPhaseProviders(phases), nil
 }
 
 // floatGetter executes configured modbus read operation and implements func() (float64, error)
-func (m *ModbusMbmd) floatGetter(op modbus.Operation) (float64, error) {
-	var res meters.MeasurementResult
-	var err error
-
-	if dev, ok := m.device.(*rs485.RS485); ok {
-		res, err = dev.QueryOp(m.conn, op.MBMD)
-	}
-
-	if dev, ok := m.device.(*sunspec.SunSpec); ok {
-		if op.MBMD.IEC61850 != 0 {
-			res, err = dev.QueryOp(m.conn, op.MBMD.IEC61850)
-		} else {
-			res.Value, err = dev.QueryPoint(
-				m.conn,
-				op.SunSpec.Model,
-				op.SunSpec.Block,
-				op.SunSpec.Point,
-			)
-		}
-	}
+func (m *ModbusMbmd) floatGetter(op rs485.Operation) (float64, error) {
+	res, err := m.device.QueryOp(m.conn, op)
 
 	// silence NaN reading errors by assuming zero
 	if err != nil && errors.Is(err, meters.ErrNaN) {

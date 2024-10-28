@@ -79,15 +79,16 @@ func NewElectricityMapsFromConfig(other map[string]interface{}) (api.Tariff, err
 
 func (t *ElectricityMaps) run(done chan error) {
 	var once sync.Once
-	bo := newBackoff()
+
 	uri := fmt.Sprintf("%s/carbon-intensity/forecast?zone=%s", t.uri, t.zone)
 
-	for ; true; <-time.Tick(time.Hour) {
+	tick := time.NewTicker(time.Hour)
+	for ; true; <-tick.C {
 		var res CarbonIntensity
 
 		if err := backoff.Retry(func() error {
-			return t.GetJSON(uri, &res)
-		}, bo); err != nil {
+			return backoffPermanentError(t.GetJSON(uri, &res))
+		}, bo()); err != nil {
 			if res.Error != "" {
 				err = errors.New(res.Error)
 			}
@@ -107,9 +108,8 @@ func (t *ElectricityMaps) run(done chan error) {
 			}
 			data = append(data, ar)
 		}
-		data.Sort()
 
-		t.data.Set(data)
+		mergeRates(t.data, data)
 		once.Do(func() { close(done) })
 	}
 }

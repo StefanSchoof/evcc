@@ -89,15 +89,16 @@ func NewGrünStromIndexFromConfig(other map[string]interface{}) (api.Tariff, err
 func (t *GrünStromIndex) run(done chan error) {
 	var once sync.Once
 	client := request.NewHelper(t.log)
-	bo := newBackoff()
+
 	uri := fmt.Sprintf("https://api.corrently.io/v2.0/gsi/prediction?zip=%s", t.zip)
 
-	for ; true; <-time.Tick(time.Hour) {
+	tick := time.NewTicker(time.Hour)
+	for ; true; <-tick.C {
 		var res gsiForecast
 
 		err := backoff.Retry(func() error {
-			return client.GetJSON(uri, &res)
-		}, bo)
+			return backoffPermanentError(client.GetJSON(uri, &res))
+		}, bo())
 
 		if err == nil && res.Err {
 			if s, ok := res.Message.(string); ok {
@@ -122,9 +123,8 @@ func (t *GrünStromIndex) run(done chan error) {
 				End:   time.UnixMilli(r.Timeframe.End).Local(),
 			})
 		}
-		data.Sort()
 
-		t.data.Set(data)
+		mergeRates(t.data, data)
 		once.Do(func() { close(done) })
 	}
 }
