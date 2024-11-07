@@ -42,7 +42,7 @@ body:
         
         To create a config without secrets you can use `evcc dump --cfg`
         
-        **Please ensure you have no passwords and the sponsortoken in your report**
+        Please ensure you have **no passwords** and **no sponsortoken** in your report
 
   - type: textarea
     validations:
@@ -74,14 +74,6 @@ body:
       description: Check if issue as already been fixed in the latest nightly build
       options:
         - label: I have verified that the issue is reproducible with the latest nightly build
-          required: true
-
-  - type: checkboxes
-    id: passwords
-    attributes:
-      label: No passwords
-      options:
-        - label: I have verified that I have no passwords and the sponsortoken in my bug report
           required: true
 
   - type: input
