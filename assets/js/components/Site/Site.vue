@@ -111,6 +111,7 @@ export default {
 		bufferStartSoc: Number,
 		siteTitle: String,
 		vehicles: Object,
+		startup: Boolean,
 
 		auth: Object,
 
@@ -178,7 +179,7 @@ export default {
 			return false;
 		},
 		isInitialSetup() {
-			return this.loadpoints.length === 0;
+			return this.startup && this.loadpoints.length === 0;
 		},
 		footer() {
 			return {
